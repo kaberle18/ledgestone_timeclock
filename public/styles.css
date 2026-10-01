@@ -47,9 +47,7 @@ form input { display: block; width: 100%; margin-top: 4px; }
 
 /* App */
 .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border); }
-.brand { white-space: nowrap; margin-right: 12px; display: inline-flex; align-items: center; gap: 9px; }
-.brand-logo { width: 28px; height: 28px; border-radius: 7px; flex: none; }
-.auth-logo { display: block; width: 64px; height: 64px; margin: 4px auto 10px; border-radius: 15px; box-shadow: 0 6px 18px -8px rgba(36,83,212,.55); }
+.brand { white-space: nowrap; margin-right: 12px; }
 /* Top-bar profile chip (photo + name) */
 .user-chip { display: flex; align-items: center; gap: 8px; min-width: 0; text-decoration: none; color: var(--text); padding: 3px 3px 3px 10px; border-radius: 999px; }
 .user-chip:hover { background: #eef1f6; }
