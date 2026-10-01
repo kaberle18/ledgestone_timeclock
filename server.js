@@ -9,28 +9,43 @@ const { renderReport } = require('./pdf');
 const COOKIE = 'tc_session';
 const SESSION_DAYS = 30;
 
-function createApp(db = openDb()) {
+function createApp(providedDb) {
   const app = express();
   app.use(express.json());
   app.use(cookieParser());
   app.use(express.static(path.join(__dirname, 'public')));
 
-  // Schema setup + secret lookup run once per process (or warm serverless
-  // instance). A failure isn't cached, so the next request retries.
+  // The database is opened, migrated and the session secret loaded on the
+  // first API request (once per process / warm serverless instance), so a
+  // misconfiguration shows up as a readable error instead of a crash.
+  // A failure isn't cached, so the next request retries.
+  let db = providedDb;
   let secret;
   let ready = null;
+  async function setup() {
+    if (!db) {
+      if (process.env.VERCEL && !process.env.DATABASE_URL) {
+        throw new Error('DATABASE_URL is not set in Vercel. Add it under Settings → Environment Variables, then redeploy.');
+      }
+      db = openDb();
+    }
+    await db.migrate();
+    secret = await getSecret(db);
+  }
   app.use('/api', async (req, res, next) => {
-    ready ||= (async () => {
-      await db.migrate();
-      secret = await getSecret(db);
-    })().catch((err) => { ready = null; throw err; });
+    ready ||= setup().catch((err) => { ready = null; throw err; });
     try {
       await ready;
       next();
     } catch (err) {
       console.error('[db] setup failed:', err);
-      res.status(500).json({ error: 'Server is not ready (database unavailable)' });
+      res.status(500).json({ error: `Server is not ready: ${err.message}` });
     }
+  });
+
+  // Quick diagnostics: open /api/health in a browser.
+  app.get('/api/health', (req, res) => {
+    res.json({ ok: true, database: db.kind, node: process.version });
   });
 
   const one = async (sql, params) => (await db.query(sql, params))[0];
@@ -156,6 +171,13 @@ function createApp(db = openDb()) {
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="timeclock-${r.from.slice(0, 10)}.pdf"`);
     renderReport(res, { email: req.user.email, from: r.from, to: r.to, tz, entries });
+  });
+
+  // Anything unexpected still comes back as JSON the UI can show.
+  app.use((err, req, res, next) => {
+    console.error('[api] error:', err);
+    if (res.headersSent) return next(err);
+    res.status(500).json({ error: `Server error: ${err.message}` });
   });
 
   return app;

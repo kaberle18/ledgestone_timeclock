@@ -18,6 +18,8 @@ Same setup as Horizon Pro: the code lives on GitHub and Vercel redeploys on ever
 
 Vercel functions have no permanent disk, so `DATABASE_URL` is required there. Session cookies are marked `Secure` automatically on Vercel.
 
+**Troubleshooting:** open `https://<your-site>/api/health`. It shows `{"ok":true,"database":"postgres"}` when everything is connected, or the exact problem (for example, `DATABASE_URL` missing or pasted wrong). Changes to environment variables only take effect after a redeploy.
+
 ## Run it locally
 
 Requires **Node.js 22** (22.13+; uses the built-in `node:sqlite` when no Postgres is configured).

@@ -46,6 +46,9 @@ const SQLITE_SCHEMA = `
 `;
 
 function openPostgres(url) {
+  if (!/^postgres(ql)?:\/\//.test(url)) {
+    throw new Error('DATABASE_URL must start with postgresql:// — paste only the connection string (no "psql", quotes or spaces).');
+  }
   const { Pool } = require('pg');
   const pool = new Pool({
     connectionString: url,
