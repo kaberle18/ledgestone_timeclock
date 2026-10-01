@@ -61,17 +61,12 @@
             <select id="period-select" aria-label="Time period">
               <option value="day">Day</option>
               <option value="week">Week</option>
-              <option value="weeks">Weeks</option>
+              <option value="weeks:2">2 weeks</option>
+              <option value="weeks:3">3 weeks</option>
+              <option value="weeks:4">4 weeks</option>
+              <option value="weeks:6">6 weeks</option>
+              <option value="weeks:8">8 weeks</option>
               <option value="month">Month</option>
-            </select>
-          </div>
-          <div class="select-pill" id="weeks-pill" hidden>
-            <select id="pick-weeks" aria-label="Number of weeks">
-              <option value="2">2 weeks</option>
-              <option value="3">3 weeks</option>
-              <option value="4">4 weeks</option>
-              <option value="6">6 weeks</option>
-              <option value="8">8 weeks</option>
             </select>
           </div>
           <div class="range-nav">
@@ -83,9 +78,12 @@
             <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
             <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
           </div>
-          <button type="button" class="btn ghost pill" id="today">Today</button>
+          <button type="button" class="jump-today" id="today" hidden>
+            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+            <span id="today-text">Today</span>
+          </button>
           <div class="toolbar-actions">
-            <button type="button" class="btn ghost sm" id="add-entry">+ Add entry</button>
+            <button type="button" class="btn ghost sm" id="add-entry" aria-label="Add entry">+ Add<span class="wide-only"> entry</span></button>
             <button type="button" class="btn primary sm icon-btn" id="export" title="Export this period as a one-page PDF">
               <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg>
               Export

@@ -178,14 +178,15 @@ async function loadToday() {
 }
 
 function renderFilters() {
-  $('period-select').value = state.period;
-  $('weeks-pill').hidden = state.period !== 'weeks';
+  $('period-select').value = state.period === 'weeks' ? `weeks:${state.weeks}` : state.period;
   $('pick-date').value = toDateInput(state.anchor);
-  $('pick-weeks').value = String(state.weeks);
   const range = currentRange();
   $('range-label').textContent = rangeLabel(range);
+  // "Back to today" only shows once you've moved away from the current period.
   const now = new Date();
-  $('today').disabled = now >= range.from && now < range.to; // already showing today
+  $('today').hidden = now >= range.from && now < range.to;
+  $('today-text').textContent = { day: 'Today', week: 'This week', weeks: 'This week', month: 'This month' }[state.period];
+  $('today').title = 'Jump back to the current period';
 }
 
 function renderEntries() {
@@ -316,8 +317,11 @@ $('clock-btn').addEventListener('click', async () => {
   loadEntries();
 });
 
+// Values are "day", "week", "month" or "weeks:<n>" (a multi-week span).
 $('period-select').addEventListener('change', (e) => {
-  state.period = e.target.value;
+  const [period, n] = e.target.value.split(':');
+  state.period = period;
+  if (n) state.weeks = Number(n);
   loadEntries();
 });
 
@@ -338,10 +342,6 @@ $('range-button').addEventListener('click', () => {
     pickDate.focus();
     pickDate.click();
   }
-});
-$('pick-weeks').addEventListener('change', (e) => {
-  state.weeks = Number(e.target.value);
-  loadEntries();
 });
 $('prev').addEventListener('click', () => shiftAnchor(-1));
 $('next').addEventListener('click', () => shiftAnchor(1));
