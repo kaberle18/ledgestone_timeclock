@@ -92,11 +92,40 @@ function rangeLabel({ from, to }) {
   return `${fmtDate.format(from)} – ${fmtDate.format(last)}`;
 }
 
+// ---------- saved view (stored on the account) ----------
+// Opens the dashboard in the user's last chosen period, on the current dates.
+function applyPrefs(prefs = {}) {
+  state.anchor = new Date();
+  const [period, n] = String(prefs.period || 'day').split(':');
+  if (period === 'custom' && prefs.custom_from && prefs.custom_to) {
+    state.custom = { from: parseDateInput(prefs.custom_from), to: addDays(parseDateInput(prefs.custom_to), 1) };
+  } else if (period === 'custom') {
+    return; // incomplete custom pref: keep the default
+  }
+  state.period = period;
+  if (n) state.weeks = Number(n);
+}
+
+let prefsTimer = 0;
+function savePrefs() {
+  const prefs = { period: state.period === 'weeks' ? `weeks:${state.weeks}` : state.period };
+  if (state.period === 'custom') {
+    prefs.custom_from = toDateInput(state.custom.from);
+    prefs.custom_to = toDateInput(addDays(state.custom.to, -1));
+  }
+  if (state.user) state.user.prefs = prefs;
+  clearTimeout(prefsTimer);
+  prefsTimer = setTimeout(() => {
+    api('/api/profile/prefs', { method: 'PUT', body: prefs }).catch(() => { /* not critical */ });
+  }, 400);
+}
+
 function shiftAnchor(dir) {
   if (state.period === 'custom') {
     // slide the custom range by its own length
     const days = Math.round((state.custom.to - state.custom.from) / 86_400_000);
     state.custom = { from: addDays(state.custom.from, dir * days), to: addDays(state.custom.to, dir * days) };
+    savePrefs();
     return loadEntries();
   }
   const a = state.anchor;
@@ -115,6 +144,7 @@ function showApp() {
   $('auth-view').hidden = true;
   $('app-view').hidden = false;
   renderUser();
+  applyPrefs(state.user.prefs);
   refreshStatus();
   route(); // loads the current tab's data
 }
@@ -377,6 +407,7 @@ $('period-select').addEventListener('change', (e) => {
   }
   state.period = period;
   if (n) state.weeks = Number(n);
+  savePrefs();
   loadEntries();
 });
 
@@ -415,6 +446,7 @@ for (const id of ['pick-start', 'pick-end']) {
     if (id === 'pick-start') from = picked; else last = picked;
     if (last < from) [from, last] = [last, from];
     state.custom = { from, to: addDays(last, 1) };
+    savePrefs();
     loadEntries();
   });
 }

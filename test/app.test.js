@@ -284,3 +284,20 @@ test('PDF export for "all time" uses the span of the entries', async (t) => {
   assert.equal(events[0].details.entries, 2);
   assert.equal(events[0].details.total_hours, 9);
 });
+
+test('dashboard period preference is saved to the account', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'pref@x.co', password: 'pw' } });
+  assert.deepEqual((await (await call('/api/me')).json()).user.prefs, {});
+  const put = (body) => call('/api/profile/prefs', { method: 'PUT', body });
+  assert.equal((await put({ period: 'week' })).status, 200);
+  assert.deepEqual((await (await call('/api/me')).json()).user.prefs, { period: 'week' });
+  assert.equal((await put({ period: 'weeks:9' })).status, 400);
+  assert.equal((await put({ period: 'custom', custom_from: '2026-09-30', custom_to: '2026-09-01' })).status, 400);
+  assert.equal((await put({ period: 'custom', custom_from: '2026-09-01', custom_to: '2026-09-30', extra: 1 })).status, 200);
+  // survives signing out and back in (e.g. another device)
+  await call('/api/logout', { method: 'POST' });
+  const { user } = await (await call('/api/login', { method: 'POST', body: { email: 'pref@x.co', password: 'pw' } })).json();
+  assert.deepEqual(user.prefs, { period: 'custom', custom_from: '2026-09-01', custom_to: '2026-09-30' });
+});

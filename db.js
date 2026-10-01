@@ -47,6 +47,7 @@ const PG_SCHEMA = `
   ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
   ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS prefs TEXT; -- JSON, e.g. the dashboard's period
   -- How an entry was created: 'clock' (live clock in/out) or 'manual'
   ALTER TABLE entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'clock';
   ${BACKFILL_SOURCE};
@@ -58,6 +59,7 @@ const SQLITE_ADDED_COLUMNS = [
   ['users', 'name', 'TEXT'],
   ['users', 'avatar', 'TEXT'],
   ['users', 'token_version', 'INTEGER NOT NULL DEFAULT 0'],
+  ['users', 'prefs', 'TEXT'],
   ['entries', 'source', "TEXT NOT NULL DEFAULT 'clock'"],
 ];
 

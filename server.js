@@ -22,6 +22,26 @@ function clientIp(req) {
   return fwd || req.socket?.remoteAddress || null;
 }
 
+const PERIODS = ['day', 'week', 'weeks:2', 'weeks:3', 'weeks:4', 'month', 'all', 'custom'];
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+// Only known keys/values are stored.
+function cleanPrefs(body) {
+  const period = String(body?.period || '');
+  if (!PERIODS.includes(period)) return null;
+  const prefs = { period };
+  if (period === 'custom') {
+    const { custom_from: from, custom_to: to } = body;
+    if (!DATE_RE.test(from || '') || !DATE_RE.test(to || '') || from > to) return null;
+    Object.assign(prefs, { custom_from: from, custom_to: to });
+  }
+  return prefs;
+}
+
+function parsePrefs(text) {
+  try { return cleanPrefs(JSON.parse(text || '{}')) || {}; } catch { return {}; }
+}
+
 function parseEvent(row) {
   let details = {};
   try { details = JSON.parse(row.details || '{}'); } catch { /* keep {} */ }
@@ -76,7 +96,8 @@ function createApp(providedDb) {
     return {
       userByEmail: (email) => one('SELECT * FROM users WHERE email = $1', [email]),
       userById: (id) => one(
-        'SELECT id, email, name, avatar, token_version, created_at FROM users WHERE id = $1', [id]),
+        'SELECT id, email, name, avatar, token_version, prefs, created_at FROM users WHERE id = $1', [id]),
+      setPrefs: (id, prefs) => x.query('UPDATE users SET prefs = $1 WHERE id = $2', [JSON.stringify(prefs), id]),
       passwordHash: async (id) => (await one('SELECT password_hash FROM users WHERE id = $1', [id]))?.password_hash,
       setName: (id, name) => x.query('UPDATE users SET name = $1 WHERE id = $2', [name, id]),
       setAvatar: (id, avatar) => x.query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar, id]),
@@ -138,7 +159,9 @@ function createApp(providedDb) {
   });
 
   // What the browser gets to see about the signed-in user.
-  const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name || '', avatar: u.avatar || null, created_at: u.created_at });
+  const publicUser = (u) => ({
+    id: u.id, email: u.email, name: u.name || '', avatar: u.avatar || null, prefs: parsePrefs(u.prefs), created_at: u.created_at,
+  });
 
   function startSession(res, userId, tokenVersion = 0) {
     const token = jwt.sign({ sub: userId, v: tokenVersion }, secret, { expiresIn: `${SESSION_DAYS}d` });
@@ -240,6 +263,14 @@ function createApp(providedDb) {
       });
     }
     res.json({ user: publicUser(await q.userById(req.user.id)) });
+  });
+
+  // Dashboard view preferences (which period is selected; custom dates).
+  app.put('/api/profile/prefs', auth, async (req, res) => {
+    const prefs = cleanPrefs(req.body);
+    if (!prefs) return res.status(400).json({ error: 'Invalid preferences' });
+    await q.setPrefs(req.user.id, prefs);
+    res.json({ prefs });
   });
 
   app.put('/api/profile/photo', auth, async (req, res) => {
