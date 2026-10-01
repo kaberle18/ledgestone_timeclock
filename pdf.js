@@ -42,8 +42,9 @@ function buildRows(entries, now = new Date()) {
 /**
  * Renders a single-page US Letter portrait PDF and pipes it to `stream`.
  * `from`/`to` are ISO instants (to is exclusive); `tz` is an IANA time zone.
+ * `rangeText` optionally replaces the computed date-range label (used for "all time").
  */
-function renderReport(stream, { email, from, to, tz, entries, now = new Date() }) {
+function renderReport(stream, { email, from, to, tz, entries, now = new Date(), rangeText }) {
   const f = makeFormatters(tz);
   const rows = buildRows(entries, now);
   const total = rows.length ? rows[rows.length - 1].cumulative : 0;
@@ -71,7 +72,7 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date() }
   const lastInstant = new Date(new Date(to).getTime() - 1);
   const startLabel = f.date.format(new Date(from));
   const endLabel = f.date.format(lastInstant);
-  const rangeLabel = startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`;
+  const rangeLabel = rangeText || (startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`);
 
   // Summary box: date range + total hours
   const boxH = 64;
@@ -171,4 +172,23 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date() }
   return { total, count: rows.length };
 }
 
-module.exports = { renderReport, buildRows, fmtHM };
+// Renders the report fully in memory. Sending a complete buffer (with a
+// Content-Length) is more reliable on serverless hosts than streaming, and
+// means a failure can still be reported as a normal error.
+function renderReportBuffer(opts) {
+  return new Promise((resolve, reject) => {
+    const { PassThrough } = require('node:stream');
+    const sink = new PassThrough();
+    const chunks = [];
+    sink.on('data', (c) => chunks.push(c));
+    sink.on('end', () => resolve(Buffer.concat(chunks)));
+    sink.on('error', reject);
+    try {
+      renderReport(sink, opts);
+    } catch (err) {
+      reject(err);
+    }
+  });
+}
+
+module.exports = { renderReport, renderReportBuffer, buildRows, fmtHM };

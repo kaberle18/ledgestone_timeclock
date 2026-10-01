@@ -41,6 +41,7 @@ const state = {
   period: 'day',     // day | week | weeks | month
   anchor: new Date(),
   weeks: 2,
+  custom: null,     // { from, to } for the Custom period (to exclusive)
   entries: [],
 };
 
@@ -65,6 +66,13 @@ function currentRange() {
       from = new Date(a.getFullYear(), a.getMonth(), 1);
       to = new Date(a.getFullYear(), a.getMonth() + 1, 1);
       break;
+    case 'all':
+      from = new Date(2000, 0, 1);
+      to = new Date(2100, 0, 1);
+      break;
+    case 'custom':
+      ({ from, to } = state.custom); // to is exclusive (day after the end date)
+      break;
   }
   return { from, to };
 }
@@ -75,6 +83,7 @@ const fmtMonthDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'n
 // Friendly label for the selected period, e.g. "October 2026" or "Sep 27 – Oct 3, 2026".
 function rangeLabel({ from, to }) {
   const last = addDays(to, -1);
+  if (state.period === 'all') return 'All time';
   if (state.period === 'month') return fmtMonthYear.format(from);
   if (state.period === 'day') return `${fmtDay.format(from)}, ${from.getFullYear()}`;
   if (from.getFullYear() === last.getFullYear()) {
@@ -84,6 +93,12 @@ function rangeLabel({ from, to }) {
 }
 
 function shiftAnchor(dir) {
+  if (state.period === 'custom') {
+    // slide the custom range by its own length
+    const days = Math.round((state.custom.to - state.custom.from) / 86_400_000);
+    state.custom = { from: addDays(state.custom.from, dir * days), to: addDays(state.custom.to, dir * days) };
+    return loadEntries();
+  }
   const a = state.anchor;
   const step = { day: 1, week: 7, weeks: 7 * state.weeks }[state.period];
   state.anchor = step ? addDays(a, dir * step) : new Date(a.getFullYear(), a.getMonth() + dir, 1);
@@ -182,12 +197,45 @@ function renderFilters() {
   $('pick-date').value = toDateInput(state.anchor);
   const range = currentRange();
   $('range-label').textContent = rangeLabel(range);
+  const custom = state.period === 'custom';
+  const all = state.period === 'all';
+  $('range-button').hidden = custom;
+  $('custom-range').hidden = !custom;
+  $('range-button').disabled = all; // nothing to pick for "All time"
+  document.querySelector('.range-nav').classList.toggle('no-arrows', all);
+  if (custom) {
+    const last = addDays(range.to, -1);
+    // Same year: "Sep 27 – Oct 3, 2026"; otherwise both dates get a year.
+    const sameYear = range.from.getFullYear() === last.getFullYear();
+    $('custom-start-label').textContent = (sameYear ? fmtMonthDay : fmtDate).format(range.from);
+    $('custom-end-label').textContent = fmtDate.format(last);
+    $('pick-start').value = toDateInput(range.from);
+    $('pick-end').value = toDateInput(addDays(range.to, -1));
+  }
   // "Back to today" only shows once you've moved away from the current period.
   const now = new Date();
-  $('today').hidden = now >= range.from && now < range.to;
-  $('today-text').textContent = { day: 'Today', week: 'This week', weeks: 'This week', month: 'This month' }[state.period];
+  $('today').hidden = all || custom || (now >= range.from && now < range.to);
+  $('today-text').textContent = { day: 'Today', week: 'This week', weeks: 'This week', month: 'This month' }[state.period] || 'Today';
   $('today').title = 'Jump back to the current period';
+  layoutToolbar();
 }
+
+// Stack the toolbar (date box under the dropdown) only when everything can't
+// share one row: try the single-row layout and see if the buttons wrapped.
+function layoutToolbar() {
+  const row = document.querySelector('.filter-row');
+  if (!row.offsetParent) return; // dashboard hidden
+  row.classList.remove('stacked');
+  const top = (el) => el.getBoundingClientRect().top;
+  if (Math.abs(top(row.querySelector('.toolbar-actions')) - top(row.querySelector('.select-pill'))) > 2) {
+    row.classList.add('stacked');
+  }
+}
+let layoutFrame = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(layoutFrame);
+  layoutFrame = requestAnimationFrame(layoutToolbar);
+});
 
 function renderEntries() {
   const tbody = $('entries');
@@ -320,6 +368,13 @@ $('clock-btn').addEventListener('click', async () => {
 // Values are "day", "week", "month" or "weeks:<n>" (a multi-week span).
 $('period-select').addEventListener('change', (e) => {
   const [period, n] = e.target.value.split(':');
+  // Custom starts from whatever range was on screen (All time -> this month).
+  if (period === 'custom') {
+    const r = state.period === 'all'
+      ? { from: new Date(new Date().getFullYear(), new Date().getMonth(), 1), to: new Date(new Date().getFullYear(), new Date().getMonth() + 1, 1) }
+      : currentRange();
+    state.custom = { from: r.from, to: r.to };
+  }
   state.period = period;
   if (n) state.weeks = Number(n);
   loadEntries();
@@ -335,22 +390,72 @@ $('pick-date').addEventListener('change', (e) => {
 const pickDate = $('pick-date');
 const canShowPicker = typeof HTMLInputElement !== 'undefined' && 'showPicker' in HTMLInputElement.prototype;
 if (!canShowPicker) pickDate.classList.add('overlay'); // older browsers: tap the input directly
-$('range-button').addEventListener('click', () => {
+function openPicker(input) {
   try {
-    pickDate.showPicker();
+    input.showPicker();
   } catch {
-    pickDate.focus();
-    pickDate.click();
+    input.focus();
+    input.click();
   }
-});
+}
+$('range-button').addEventListener('click', () => openPicker(pickDate));
+
+// Custom range: each half opens its own calendar; picking keeps start <= end.
+for (const id of ['pick-start', 'pick-end']) {
+  const input = $(id);
+  if (!canShowPicker) input.classList.add('overlay');
+  input.parentElement.addEventListener('click', (e) => {
+    if (e.target !== input) { e.preventDefault(); openPicker(input); }
+  });
+  input.addEventListener('change', () => {
+    if (!input.value) return;
+    const picked = parseDateInput(input.value);
+    let { from, to } = state.custom;
+    let last = addDays(to, -1);
+    if (id === 'pick-start') from = picked; else last = picked;
+    if (last < from) [from, last] = [last, from];
+    state.custom = { from, to: addDays(last, 1) };
+    loadEntries();
+  });
+}
 $('prev').addEventListener('click', () => shiftAnchor(-1));
 $('next').addEventListener('click', () => shiftAnchor(1));
 $('today').addEventListener('click', () => { state.anchor = new Date(); loadEntries(); });
 
-$('export').addEventListener('click', () => {
+// Downloads the PDF in the background so a server error shows as a message
+// instead of a broken file.
+async function downloadFile(url, fallbackName) {
+  const res = await fetch(url, { credentials: 'same-origin' });
+  const type = res.headers.get('content-type') || '';
+  if (!res.ok || !/application\/pdf|text\/csv/.test(type)) {
+    const data = await res.json().catch(() => ({}));
+    throw Object.assign(new Error(data.error || `Export failed (HTTP ${res.status})`), { status: res.status });
+  }
+  const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || fallbackName;
+  const blobUrl = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
+}
+
+$('export').addEventListener('click', async () => {
   const { from, to } = currentRange();
   const qs = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), tz });
-  window.location.href = `/api/export.pdf?${qs}`;
+  if (state.period === 'all') qs.set('all', '1');
+  const btn = $('export');
+  btn.disabled = true;
+  try {
+    await downloadFile(`/api/export.pdf?${qs}`, 'timeclock.pdf');
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    alert(`Couldn't export the PDF: ${err.message}`);
+  } finally {
+    btn.disabled = false;
+  }
 });
 
 // Shows the in-app delete confirmation; resolves true only if "Delete entry" is clicked.
@@ -498,7 +603,7 @@ function describe(ev) {
     case 'pdf_exported': {
       const first = fmtDate.format(new Date(d.from));
       const last = fmtDate.format(new Date(new Date(d.to).getTime() - 1));
-      return `Exported PDF for ${first === last ? first : `${first} – ${last}`} · `
+      return `Exported PDF for ${d.all ? 'all time' : first === last ? first : `${first} – ${last}`} · `
         + `${d.entries} ${d.entries === 1 ? 'entry' : 'entries'} · ${Number(d.total_hours).toFixed(2)} hrs`;
     }
     default: return ev.action;
@@ -593,8 +698,13 @@ function renderActivity() {
 
 $('activity-filter').addEventListener('change', () => loadActivity());
 $('activity-more').addEventListener('click', () => loadActivity({ more: true }));
-$('activity-csv').addEventListener('click', () => {
-  window.location.href = `/api/activity.csv?${new URLSearchParams({ tz })}`;
+$('activity-csv').addEventListener('click', async () => {
+  try {
+    await downloadFile(`/api/activity.csv?${new URLSearchParams({ tz })}`, 'timeclock-activity-log.csv');
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    alert(`Couldn't download the log: ${err.message}`);
+  }
 });
 
 // ---------- profile ----------

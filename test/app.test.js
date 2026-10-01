@@ -268,3 +268,19 @@ test('profile: name, photo, email, password, delete data, delete account', async
   // the other account is untouched
   assert.equal((await call('/api/login', { method: 'POST', body: { email: 'taken@x.co', password: 'pw' } })).status, 200);
 });
+
+test('PDF export for "all time" uses the span of the entries', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'all@x.co', password: 'pw' } });
+  await call('/api/entries', { method: 'POST', body: { clock_in: '2026-03-02T15:00:00.000Z', clock_out: '2026-03-02T20:00:00.000Z' } });
+  await call('/api/entries', { method: 'POST', body: { clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T17:00:00.000Z' } });
+  const res = await call('/api/export.pdf?from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z&tz=UTC&all=1');
+  assert.equal(res.status, 200);
+  const pdf = Buffer.from(await res.arrayBuffer());
+  assert.equal(pageCount(pdf), 1);
+  const { events } = await (await call('/api/activity?action=pdf_exported')).json();
+  assert.equal(events[0].details.all, true);
+  assert.equal(events[0].details.entries, 2);
+  assert.equal(events[0].details.total_hours, 9);
+});

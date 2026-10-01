@@ -64,9 +64,9 @@
               <option value="weeks:2">2 weeks</option>
               <option value="weeks:3">3 weeks</option>
               <option value="weeks:4">4 weeks</option>
-              <option value="weeks:6">6 weeks</option>
-              <option value="weeks:8">8 weeks</option>
               <option value="month">Month</option>
+              <option value="all">All time</option>
+              <option value="custom">Custom…</option>
             </select>
           </div>
           <div class="range-group">
@@ -77,6 +77,19 @@
                 <span id="range-label"></span>
               </button>
               <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
+              <!-- Custom range: start and end each open their own calendar -->
+              <div class="custom-range" id="custom-range" hidden>
+                <label class="range-part" id="custom-start-part" title="Start date">
+                  <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+                  <span id="custom-start-label"></span>
+                  <input type="date" id="pick-start" class="picker-input" aria-label="Start date">
+                </label>
+                <span class="range-sep" aria-hidden="true">–</span>
+                <label class="range-part" id="custom-end-part" title="End date">
+                  <span id="custom-end-label"></span>
+                  <input type="date" id="pick-end" class="picker-input" aria-label="End date">
+                </label>
+              </div>
               <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
             </div>
             <button type="button" class="jump-today" id="today" hidden>

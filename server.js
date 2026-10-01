@@ -4,7 +4,7 @@ const cookieParser = require('cookie-parser');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { openDb, getSecret } = require('./db');
-const { renderReport } = require('./pdf');
+const { renderReportBuffer } = require('./pdf');
 
 const ACTIONS = [
   'account_created', 'signed_in', 'sign_in_failed', 'signed_out',
@@ -398,13 +398,32 @@ function createApp(providedDb) {
     let tz = String(req.query.tz || 'UTC');
     try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); } catch { tz = 'UTC'; }
     const entries = await q.range(req.user.id, r.from, r.to);
-    const total = entries.reduce((sum, e) => sum + hours(e.clock_in, e.clock_out || new Date().toISOString()), 0);
+    const nowIso = new Date().toISOString();
+    const total = entries.reduce((sum, e) => sum + hours(e.clock_in, e.clock_out || nowIso), 0);
+    // "All time": the header shows the span actually covered by the entries.
+    const all = req.query.all === '1';
+    let rangeText;
+    if (all) {
+      const day = new Intl.DateTimeFormat('en-US', { timeZone: tz, month: 'short', day: 'numeric', year: 'numeric' });
+      if (!entries.length) rangeText = 'All time';
+      else {
+        const first = day.format(new Date(entries[0].clock_in));
+        const last = day.format(new Date(entries.reduce((m, e) => ((e.clock_out || nowIso) > m ? e.clock_out || nowIso : m), '')));
+        rangeText = first === last ? first : `${first} – ${last}`;
+      }
+    }
+    // Build the whole PDF first: if anything fails, the client gets a JSON error
+    // instead of a half-written file, and no export is logged.
+    const pdf = await renderReportBuffer({ email: req.user.email, from: r.from, to: r.to, tz, entries, rangeText });
     await q.log(req, req.user.id, 'pdf_exported', {
-      details: { from: r.from, to: r.to, tz, entries: entries.length, total_hours: Math.round(total * 100) / 100 },
+      details: { from: r.from, to: r.to, tz, all, entries: entries.length, total_hours: Math.round(total * 100) / 100 },
     });
+    const name = all ? 'timeclock-all-time.pdf' : `timeclock-${r.from.slice(0, 10)}.pdf`;
     res.setHeader('Content-Type', 'application/pdf');
-    res.setHeader('Content-Disposition', `attachment; filename="timeclock-${r.from.slice(0, 10)}.pdf"`);
-    renderReport(res, { email: req.user.email, from: r.from, to: r.to, tz, entries });
+    res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+    res.setHeader('Content-Length', String(pdf.length));
+    res.setHeader('Cache-Control', 'no-store');
+    res.end(pdf);
   });
 
   // ---- Activity log (read-only) ----
