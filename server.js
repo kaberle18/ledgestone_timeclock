@@ -61,6 +61,14 @@ function createApp(providedDb) {
       'INSERT INTO entries (user_id, clock_in) VALUES ($1, $2) RETURNING *', [userId, new Date().toISOString()]),
     clockOut: (id) => one(
       'UPDATE entries SET clock_out = $1 WHERE id = $2 RETURNING *', [new Date().toISOString(), id]),
+    insertEntry: (userId, clockIn, clockOut) => one(
+      'INSERT INTO entries (user_id, clock_in, clock_out) VALUES ($1, $2, $3) RETURNING *', [userId, clockIn, clockOut]),
+    deleteEntry: (userId, id) => one('DELETE FROM entries WHERE id = $1 AND user_id = $2 RETURNING id', [id, userId]),
+    // Any shift (an open one counts as running until now) that overlaps [from, to).
+    overlapping: (userId, from, to) => one(
+      `SELECT * FROM entries
+       WHERE user_id = $1 AND clock_in < $3 AND COALESCE(clock_out, $4) > $2
+       ORDER BY clock_in LIMIT 1`, [userId, from, to, new Date().toISOString()]),
     range: (userId, from, to) => db.query(
       `SELECT id, clock_in, clock_out FROM entries
        WHERE user_id = $1 AND clock_in >= $2 AND clock_in < $3
@@ -160,6 +168,28 @@ function createApp(providedDb) {
     const r = readRange(req.query);
     if (!r) return res.status(400).json({ error: 'Invalid date range' });
     res.json({ entries: await q.range(req.user.id, r.from, r.to) });
+  });
+
+  // Manually log a past shift.
+  app.post('/api/entries', auth, async (req, res) => {
+    const clockIn = new Date(req.body?.clock_in);
+    const clockOut = new Date(req.body?.clock_out);
+    if (isNaN(clockIn) || isNaN(clockOut)) return res.status(400).json({ error: 'Clock in and clock out times are required' });
+    if (clockOut <= clockIn) return res.status(400).json({ error: 'Clock out must be after clock in' });
+    if (clockOut > new Date()) return res.status(400).json({ error: 'Manual entries must be in the past' });
+    const from = clockIn.toISOString();
+    const to = clockOut.toISOString();
+    if (await q.overlapping(req.user.id, from, to)) {
+      return res.status(409).json({ error: 'That time overlaps a shift you already have' });
+    }
+    res.status(201).json({ entry: await q.insertEntry(req.user.id, from, to) });
+  });
+
+  app.delete('/api/entries/:id', auth, async (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id)) return res.status(404).json({ error: 'Entry not found' });
+    if (!(await q.deleteEntry(req.user.id, id))) return res.status(404).json({ error: 'Entry not found' });
+    res.json({ ok: true });
   });
 
   app.get('/api/export.pdf', auth, async (req, res) => {

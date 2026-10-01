@@ -90,3 +90,46 @@ test('unauthenticated requests are rejected', async (t) => {
     assert.equal((await call(p)).status, 401, p);
   }
 });
+
+test('manually add and delete entries', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'm@x.co', password: 'pw' } });
+  const add = (clock_in, clock_out) => call('/api/entries', { method: 'POST', body: { clock_in, clock_out } });
+
+  let res = await add('2026-09-10T13:00:00.000Z', '2026-09-10T21:00:00.000Z');
+  assert.equal(res.status, 201);
+  const { entry } = await res.json();
+  assert.equal(entry.clock_out, '2026-09-10T21:00:00.000Z');
+
+  assert.equal((await add('2026-09-10T20:00:00.000Z', '2026-09-10T22:00:00.000Z')).status, 409, 'overlap');
+  assert.equal((await add('2026-09-10T21:00:00.000Z', '2026-09-10T22:00:00.000Z')).status, 201, 'touching is fine');
+  assert.equal((await add('2026-09-11T10:00:00.000Z', '2026-09-11T09:00:00.000Z')).status, 400, 'out before in');
+  assert.equal((await add('2999-01-01T10:00:00.000Z', '2999-01-01T11:00:00.000Z')).status, 400, 'future');
+  assert.equal((await add('nope', '')).status, 400);
+
+  // An open (current) shift blocks a manual entry that overlaps "now"-ish ranges
+  await call('/api/clock-in', { method: 'POST' });
+  const recent = Date.now() - 60_000;
+  assert.equal((await add(new Date(recent - 3_600_000).toISOString(), new Date(recent).toISOString())).status, 201);
+  const { active } = await (await call('/api/status')).json();
+
+  // Another user can't delete my entry
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/register', { method: 'POST', body: { email: 'other@x.co', password: 'pw' } });
+  assert.equal((await call(`/api/entries/${entry.id}`, { method: 'DELETE' })).status, 404);
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/login', { method: 'POST', body: { email: 'm@x.co', password: 'pw' } });
+
+  assert.equal((await call(`/api/entries/${entry.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await call(`/api/entries/${entry.id}`, { method: 'DELETE' })).status, 404);
+  assert.equal((await call('/api/entries/abc', { method: 'DELETE' })).status, 404);
+
+  // Deleting the open shift clocks you out
+  assert.equal((await call(`/api/entries/${active.id}`, { method: 'DELETE' })).status, 200);
+  assert.equal((await (await call('/api/status')).json()).active, null);
+
+  const range = 'from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z';
+  const { entries } = await (await call(`/api/entries?${range}`)).json();
+  assert.deepEqual(entries.map((e) => e.clock_in), ['2026-09-10T21:00:00.000Z']);
+});

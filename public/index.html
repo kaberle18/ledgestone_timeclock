@@ -27,9 +27,8 @@
   <!-- Main app -->
   <div id="app-view" hidden>
     <header class="topbar">
-      <strong>Time Clock</strong>
-      <span class="spacer"></span>
-      <span id="user-email" class="muted"></span>
+      <strong class="brand">Time Clock</strong>
+      <span id="user-email" class="muted user-email"></span>
       <button type="button" class="btn ghost" id="logout">Sign out</button>
     </header>
 
@@ -77,6 +76,7 @@
             <div class="value"><span id="total-hours">0.00</span> <span id="total-hm" class="muted small"></span></div>
           </div>
           <div class="summary-action">
+            <button type="button" class="btn ghost" id="add-entry">+ Add entry</button>
             <button type="button" class="btn primary" id="export">Export PDF</button>
           </div>
         </div>
@@ -84,7 +84,7 @@
         <div class="table-wrap">
           <table>
             <thead>
-              <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th class="num">Hours</th><th class="num">Cumulative</th></tr>
+              <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th class="num">Hours</th><th class="num">Cumulative</th><th class="actions"><span class="sr-only">Actions</span></th></tr>
             </thead>
             <tbody id="entries"></tbody>
           </table>
@@ -93,6 +93,25 @@
       </section>
     </main>
   </div>
+
+  <!-- Manually log a past shift -->
+  <dialog id="entry-dialog">
+    <form id="entry-form" method="dialog">
+      <h2>Add past entry</h2>
+      <label>Date <input type="date" name="date" required></label>
+      <div class="two">
+        <label>Clock in <input type="time" name="in" required></label>
+        <label>Clock out <input type="time" name="out" required></label>
+      </div>
+      <p class="muted small">If clock out is earlier than clock in, it's counted as the next day (overnight shift).</p>
+      <p id="entry-preview" class="small"></p>
+      <p id="entry-error" class="error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="entry-cancel">Cancel</button>
+        <button type="submit" class="btn primary" id="entry-save">Save entry</button>
+      </div>
+    </form>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

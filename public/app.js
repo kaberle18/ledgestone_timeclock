@@ -146,13 +146,24 @@ function renderEntries() {
       hours.toFixed(2),
       cumulative.toFixed(2),
     ];
+    // Column classes double as grid areas for the stacked mobile layout.
+    const classes = ['c-date', 'c-in', 'c-out', 'c-hours num', 'c-cum num'];
     cells.forEach((text, i) => {
       const td = document.createElement('td');
       td.textContent = text;
-      if (i >= 3) td.className = 'num';
-      if (i === 2 && !e.clock_out) td.className = 'active';
+      td.className = classes[i] + (i === 2 && !e.clock_out ? ' active' : '');
       tr.appendChild(td);
     });
+    const actions = document.createElement('td');
+    actions.className = 'actions';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'btn delete';
+    del.textContent = 'Delete';
+    del.setAttribute('aria-label', `Delete entry from ${cells[0]}, ${cells[1]}`);
+    del.addEventListener('click', () => deleteEntry(e));
+    actions.appendChild(del);
+    tr.appendChild(actions);
     tbody.appendChild(tr);
   }
   $('empty').hidden = state.entries.length > 0;
@@ -265,6 +276,80 @@ $('export').addEventListener('click', () => {
   const { from, to } = currentRange();
   const qs = new URLSearchParams({ from: from.toISOString(), to: to.toISOString(), tz });
   window.location.href = `/api/export.pdf?${qs}`;
+});
+
+async function deleteEntry(e) {
+  const when = `${fmtDay.format(new Date(e.clock_in))}, ${fmtTime.format(new Date(e.clock_in))} – `
+    + (e.clock_out ? fmtTime.format(new Date(e.clock_out)) : 'in progress');
+  const extra = e.clock_out ? '' : '\n\nThis is your current shift — deleting it clocks you out without saving it.';
+  if (!confirm(`Delete this entry?\n\n${when}${extra}`)) return;
+  try {
+    await api(`/api/entries/${e.id}`, { method: 'DELETE' });
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    alert(err.message);
+  }
+  await refreshStatus();
+  loadEntries();
+}
+
+// ---------- add past entry ----------
+// Reads the dialog's date + times (local time) into ISO instants.
+function readEntryForm() {
+  const f = $('entry-form');
+  if (!f.date.value || !f.in.value || !f.out.value) return null;
+  const [y, m, d] = f.date.value.split('-').map(Number);
+  const at = (hhmm, dayOffset) => {
+    const [h, min] = hhmm.split(':').map(Number);
+    return new Date(y, m - 1, d + dayOffset, h, min);
+  };
+  const clockIn = at(f.in.value, 0);
+  let clockOut = at(f.out.value, 0);
+  if (clockOut <= clockIn) clockOut = at(f.out.value, 1); // overnight shift
+  return { clockIn, clockOut };
+}
+
+function updateEntryPreview() {
+  const r = readEntryForm();
+  $('entry-preview').textContent = r
+    ? `${fmtDay.format(r.clockIn)} ${fmtTime.format(r.clockIn)} → ${fmtDay.format(r.clockOut)} ${fmtTime.format(r.clockOut)} · ${hoursBetween(r.clockIn, r.clockOut).toFixed(2)} hrs`
+    : '';
+}
+
+$('add-entry').addEventListener('click', () => {
+  const f = $('entry-form');
+  f.reset();
+  // Default to the day being viewed (or today if that's in the future).
+  const day = state.anchor > new Date() ? new Date() : state.anchor;
+  f.date.value = toDateInput(day);
+  f.date.max = toDateInput(new Date());
+  $('entry-error').hidden = true;
+  updateEntryPreview();
+  $('entry-dialog').showModal();
+});
+$('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
+$('entry-form').addEventListener('input', updateEntryPreview);
+$('entry-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  const r = readEntryForm();
+  if (!r) return;
+  $('entry-error').hidden = true;
+  $('entry-save').disabled = true;
+  try {
+    await api('/api/entries', {
+      method: 'POST',
+      body: { clock_in: r.clockIn.toISOString(), clock_out: r.clockOut.toISOString() },
+    });
+    $('entry-dialog').close();
+    state.anchor = r.clockIn; // jump to the period containing the new entry
+    loadEntries();
+  } catch (err) {
+    if (err.status === 401) { $('entry-dialog').close(); return showAuth(); }
+    $('entry-error').textContent = err.message;
+    $('entry-error').hidden = false;
+  } finally {
+    $('entry-save').disabled = false;
+  }
 });
 
 // Live elapsed timer while clocked in.
