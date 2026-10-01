@@ -8,7 +8,7 @@ const { createApp } = require('../server');
 async function startServer() {
   const url = process.env.TEST_DATABASE_URL || '';
   const db = openDb({ url, file: ':memory:' });
-  if (url) await db.query('DROP TABLE IF EXISTS entries, users, meta');
+  if (url) await db.query('DROP TABLE IF EXISTS activity, entries, users, meta');
   const server = createApp(db).listen(0);
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -132,4 +132,56 @@ test('manually add and delete entries', async (t) => {
   const range = 'from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z';
   const { entries } = await (await call(`/api/entries?${range}`)).json();
   assert.deepEqual(entries.map((e) => e.clock_in), ['2026-09-10T21:00:00.000Z']);
+});
+
+test('activity log records every action, including deleted records', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'log@x.co', password: 'pw' } });
+  await call('/api/clock-in', { method: 'POST' });
+  await call('/api/clock-out', { method: 'POST' });
+  const { entry } = await (await call('/api/entries', {
+    method: 'POST', body: { clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T21:30:00.000Z' },
+  })).json();
+  await call(`/api/entries/${entry.id}`, { method: 'DELETE' });
+  await call('/api/export.pdf?from=2026-09-01T00:00:00Z&to=2026-10-01T00:00:00Z&tz=UTC');
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/login', { method: 'POST', body: { email: 'log@x.co', password: 'wrong' } });
+  await call('/api/login', { method: 'POST', body: { email: 'log@x.co', password: 'pw' } });
+
+  const { events, has_more } = await (await call('/api/activity')).json();
+  assert.equal(has_more, false);
+  assert.deepEqual(events.map((e) => e.action), [
+    'signed_in', 'sign_in_failed', 'signed_out', 'pdf_exported', 'entry_deleted',
+    'entry_added', 'clocked_out', 'clocked_in', 'account_created',
+  ]);
+  const deleted = events.find((e) => e.action === 'entry_deleted');
+  assert.equal(deleted.entry_id, entry.id);
+  assert.deepEqual(deleted.details, {
+    clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T21:30:00.000Z', hours: 8.5, was_active: false,
+  });
+  assert.equal(events.find((e) => e.action === 'pdf_exported').details.entries, 0);
+  assert.ok(events[0].ip);
+
+  // Paging and filtering
+  const page1 = await (await call('/api/activity?limit=4')).json();
+  assert.equal(page1.events.length, 4);
+  assert.equal(page1.has_more, true);
+  const page2 = await (await call(`/api/activity?limit=100&before=${page1.events.at(-1).id}`)).json();
+  assert.equal(page2.events.length, 5);
+  const onlyDeletes = await (await call('/api/activity?action=entry_deleted')).json();
+  assert.deepEqual(onlyDeletes.events.map((e) => e.action), ['entry_deleted']);
+
+  // CSV export
+  const csv = await (await call('/api/activity.csv?tz=America/Chicago')).text();
+  const lines = csv.trim().split('\r\n');
+  assert.equal(lines.length, 10);
+  assert.match(lines[0], /^Event #,Time \(UTC\),Time \(America\/Chicago\),Action/);
+  assert.match(csv, /entry_deleted,\d+,2026-09-10T13:00:00.000Z,2026-09-10T21:30:00.000Z,8.5/);
+
+  // Users only see their own log, and there is no way to change it
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/register', { method: 'POST', body: { email: 'other2@x.co', password: 'pw' } });
+  assert.deepEqual((await (await call('/api/activity')).json()).events.map((e) => e.action), ['account_created']);
+  assert.equal((await call('/api/activity/1', { method: 'DELETE' })).status, 404);
 });

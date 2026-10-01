@@ -25,6 +25,19 @@ const PG_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS entries_user_in ON entries(user_id, clock_in);
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  -- Append-only activity log (paper trail). entry_id is deliberately not a
+  -- foreign key: the log must outlive entries that get deleted.
+  CREATE TABLE IF NOT EXISTS activity (
+    id SERIAL PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    at TEXT COLLATE "C" NOT NULL,
+    action TEXT NOT NULL,
+    entry_id INTEGER,
+    details TEXT NOT NULL DEFAULT '{}',
+    ip TEXT,
+    user_agent TEXT
+  );
+  CREATE INDEX IF NOT EXISTS activity_user_id ON activity(user_id, id);
 `;
 
 const SQLITE_SCHEMA = `
@@ -43,6 +56,17 @@ const SQLITE_SCHEMA = `
   );
   CREATE INDEX IF NOT EXISTS entries_user_in ON entries(user_id, clock_in);
   CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS activity (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    at TEXT NOT NULL,
+    action TEXT NOT NULL,
+    entry_id INTEGER,
+    details TEXT NOT NULL DEFAULT '{}',
+    ip TEXT,
+    user_agent TEXT
+  );
+  CREATE INDEX IF NOT EXISTS activity_user_id ON activity(user_id, id);
 `;
 
 function openPostgres(url) {
@@ -66,6 +90,21 @@ function openPostgres(url) {
     async migrate() {
       await pool.query(PG_SCHEMA);
     },
+    // Runs fn(tx) inside BEGIN/COMMIT on one connection; rolls back on error.
+    async transaction(fn) {
+      const client = await pool.connect();
+      try {
+        await client.query('BEGIN');
+        const result = await fn({ query: async (sql, params = []) => (await client.query(sql, params)).rows });
+        await client.query('COMMIT');
+        return result;
+      } catch (err) {
+        await client.query('ROLLBACK').catch(() => {});
+        throw err;
+      } finally {
+        client.release();
+      }
+    },
     end: () => pool.end(),
   };
 }
@@ -74,11 +113,26 @@ function openSqlite(file) {
   const { DatabaseSync } = require('node:sqlite');
   if (file !== ':memory:') fs.mkdirSync(path.dirname(file), { recursive: true });
   const db = new DatabaseSync(file);
+  // $1 -> ?1 (SQLite's numbered-parameter syntax)
+  const query = async (sql, params = []) => db.prepare(sql.replace(/\$(\d+)/g, '?$1')).all(...params);
+  let txQueue = Promise.resolve(); // one transaction at a time on the single connection
   return {
     kind: 'sqlite',
-    async query(sql, params = []) {
-      // $1 -> ?1 (SQLite's numbered-parameter syntax)
-      return db.prepare(sql.replace(/\$(\d+)/g, '?$1')).all(...params);
+    query,
+    transaction(fn) {
+      const run = txQueue.then(async () => {
+        db.exec('BEGIN');
+        try {
+          const result = await fn({ query });
+          db.exec('COMMIT');
+          return result;
+        } catch (err) {
+          db.exec('ROLLBACK');
+          throw err;
+        }
+      });
+      txQueue = run.catch(() => {});
+      return run;
     },
     async migrate() {
       db.exec(SQLITE_SCHEMA);

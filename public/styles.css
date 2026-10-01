@@ -48,7 +48,7 @@ form input { display: block; width: 100%; margin-top: 4px; }
 
 /* App */
 .topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border); }
-.brand { white-space: nowrap; margin-right: auto; }
+.brand { white-space: nowrap; margin-right: 12px; }
 .user-email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .topbar .btn { white-space: nowrap; flex: none; }
 .container { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
@@ -93,6 +93,31 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 dialog p { margin: 0 0 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
+/* Top-bar section tabs */
+.nav-tabs { display: flex; gap: 4px; margin-right: auto; }
+.nav-tab { padding: 7px 14px; border-radius: 8px; color: var(--muted); text-decoration: none; font-weight: 500; white-space: nowrap; }
+.nav-tab:hover { background: #eef1f6; color: var(--text); }
+.nav-tab.active { background: #e8eefc; color: var(--primary); font-weight: 600; }
+
+/* Data / activity log */
+.data-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; margin-bottom: 12px; }
+.data-title { margin: 0; font-size: 18px; }
+.data-sub { margin: 4px 0 0; }
+.data-controls { display: flex; gap: 8px; flex-wrap: wrap; }
+table.activity td { white-space: normal; vertical-align: top; }
+table.activity td.a-when { white-space: nowrap; }
+.a-when .muted, .a-device .muted { display: block; font-size: 12px; }
+.a-device { font-size: 13px; white-space: nowrap !important; }
+.a-details .entry-ref { color: var(--muted); font-size: 12px; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+.badge.time { background: #e8eefc; color: #1f46b8; }
+.badge.added { background: #e3f5ea; color: #14703f; }
+.badge.deleted { background: #fde8ea; color: #b02331; }
+.badge.export { background: #f1e9fd; color: #6a32b8; }
+.badge.account { background: #eef0f3; color: #4a5263; }
+.badge.failed { background: #fff1de; color: #9a5400; }
+.load-more { text-align: center; margin-top: 12px; }
+
 /* Delete confirmation */
 .delete-summary { background: var(--stripe); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .strong { font-weight: 600; }
@@ -112,6 +137,10 @@ dialog p { margin: 0 0 12px; }
   .summary { justify-content: space-between; }
   .summary-action { margin-left: 0; width: 100%; }
   .summary-action .btn { flex: 1; }
+  .topbar { flex-wrap: wrap; }
+  .nav-tabs { order: 3; width: 100%; margin: 0; }
+  .nav-tab { flex: 1; text-align: center; }
+  .user-email { flex: 1 1 0; text-align: right; }
 }
 
 /* Phone: clock card stacks, table rows become cards */
@@ -155,4 +184,21 @@ dialog p { margin: 0 0 12px; }
   .c-cum::before { content: "Total "; }
   td.actions { grid-area: del; text-align: right; }
   .btn.delete { padding: 2px 0; }
+
+  .data-controls { width: 100%; }
+  .data-controls select { flex: 1; min-width: 0; }
+  table.activity tbody tr {
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "action when"
+      "details details"
+      "device device";
+    gap: 4px 8px;
+  }
+  .a-action { grid-area: action; }
+  .a-when { grid-area: when; text-align: right; font-size: 13px; }
+  .a-details { grid-area: details; }
+  .a-device { grid-area: device; color: var(--muted); font-size: 12px; }
+  .a-device .muted { display: inline; }
+  .a-device .muted::before { content: " · "; }
 }

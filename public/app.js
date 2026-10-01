@@ -94,8 +94,23 @@ function showApp() {
   $('app-view').hidden = false;
   $('user-email').textContent = state.user.email;
   refreshStatus();
-  loadEntries();
+  route(); // loads the current tab's data
 }
+
+// ---------- top-bar sections (Dashboard / Data) ----------
+function route() {
+  const view = location.hash === '#data' ? 'data' : 'dashboard';
+  $('dashboard-view').hidden = view !== 'dashboard';
+  $('data-view').hidden = view !== 'data';
+  document.querySelectorAll('.nav-tab').forEach((t) => {
+    const on = t.dataset.view === view;
+    t.classList.toggle('active', on);
+    if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
+  });
+  if (!state.user) return;
+  if (view === 'data') loadActivity(); else loadEntries();
+}
+window.addEventListener('hashchange', route);
 
 function renderClock() {
   const btn = $('clock-btn');
@@ -364,6 +379,140 @@ $('entry-form').addEventListener('submit', async (ev) => {
   } finally {
     $('entry-save').disabled = false;
   }
+});
+
+// ---------- activity log (Data tab) ----------
+const fmtStamp = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
+const fmtStampTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
+
+const ACTION_INFO = {
+  account_created: ['Account created', 'account'],
+  signed_in: ['Signed in', 'account'],
+  sign_in_failed: ['Failed sign-in', 'failed'],
+  signed_out: ['Signed out', 'account'],
+  clocked_in: ['Clocked in', 'time'],
+  clocked_out: ['Clocked out', 'time'],
+  entry_added: ['Entry added', 'added'],
+  entry_deleted: ['Entry deleted', 'deleted'],
+  pdf_exported: ['PDF exported', 'export'],
+};
+
+function shiftText(d) {
+  if (!d.clock_in) return '';
+  const inD = new Date(d.clock_in);
+  const out = d.clock_out ? fmtTime.format(new Date(d.clock_out)) : 'in progress';
+  const outDay = d.clock_out && new Date(d.clock_out).toDateString() !== inD.toDateString()
+    ? ` (${fmtDay.format(new Date(d.clock_out))})` : '';
+  const hrs = d.hours != null ? ` · ${Number(d.hours).toFixed(2)} hrs` : '';
+  return `${fmtDay.format(inD)}, ${inD.getFullYear()} · ${fmtTime.format(inD)} → ${out}${outDay}${hrs}`;
+}
+
+function describe(ev) {
+  const d = ev.details || {};
+  switch (ev.action) {
+    case 'account_created': return `Account created for ${d.email || state.user.email}`;
+    case 'signed_in': return 'Signed in';
+    case 'sign_in_failed': return 'Someone tried to sign in with the wrong password';
+    case 'signed_out': return 'Signed out';
+    case 'clocked_in': return `Clocked in at ${fmtTime.format(new Date(d.clock_in))} on ${fmtDay.format(new Date(d.clock_in))}`;
+    case 'clocked_out': return `Clocked out. Shift: ${shiftText(d)}`;
+    case 'entry_added': return `Added past entry: ${shiftText(d)}`;
+    case 'entry_deleted':
+      return `Deleted entry: ${shiftText(d)}${d.was_active ? ' (was the current shift)' : ''}`;
+    case 'pdf_exported': {
+      const first = fmtDate.format(new Date(d.from));
+      const last = fmtDate.format(new Date(new Date(d.to).getTime() - 1));
+      return `Exported PDF for ${first === last ? first : `${first} – ${last}`} · `
+        + `${d.entries} ${d.entries === 1 ? 'entry' : 'entries'} · ${Number(d.total_hours).toFixed(2)} hrs`;
+    }
+    default: return ev.action;
+  }
+}
+
+// Rough "Browser on OS" from the user-agent string.
+function deviceText(ua = '') {
+  const browser = /Edg\//.test(ua) ? 'Edge' : /OPR\//.test(ua) ? 'Opera' : /Firefox\//.test(ua) ? 'Firefox'
+    : /Chrome\//.test(ua) ? 'Chrome' : /Safari\//.test(ua) ? 'Safari' : '';
+  const os = /iPhone/.test(ua) ? 'iPhone' : /iPad/.test(ua) ? 'iPad' : /Android/.test(ua) ? 'Android'
+    : /Mac OS X|Macintosh/.test(ua) ? 'Mac' : /Windows/.test(ua) ? 'Windows' : /Linux/.test(ua) ? 'Linux' : '';
+  if (browser && os) return `${browser} on ${os}`;
+  return browser || os || 'Unknown device';
+}
+
+const activity = { events: [], hasMore: false, seq: 0 };
+
+async function loadActivity({ more = false } = {}) {
+  const seq = ++activity.seq;
+  const qs = new URLSearchParams({ limit: '100' });
+  const filter = $('activity-filter').value;
+  if (filter) qs.set('action', filter);
+  if (more && activity.events.length) qs.set('before', activity.events[activity.events.length - 1].id);
+  try {
+    const { events, has_more } = await api(`/api/activity?${qs}`);
+    if (seq !== activity.seq) return;
+    activity.events = more ? activity.events.concat(events) : events;
+    activity.hasMore = has_more;
+    renderActivity();
+  } catch (err) {
+    if (err.status === 401) return showAuth();
+    alert(err.message);
+  }
+}
+
+function renderActivity() {
+  const tbody = $('activity-rows');
+  tbody.innerHTML = '';
+  for (const ev of activity.events) {
+    const tr = document.createElement('tr');
+    const at = new Date(ev.at);
+    const [label, kind] = ACTION_INFO[ev.action] || [ev.action, 'account'];
+
+    const when = document.createElement('td');
+    when.className = 'a-when';
+    when.textContent = fmtStamp.format(at);
+    const t = document.createElement('span');
+    t.className = 'muted';
+    t.textContent = fmtStampTime.format(at);
+    when.appendChild(t);
+
+    const action = document.createElement('td');
+    action.className = 'a-action';
+    const badge = document.createElement('span');
+    badge.className = `badge ${kind}`;
+    badge.textContent = label;
+    action.appendChild(badge);
+
+    const details = document.createElement('td');
+    details.className = 'a-details';
+    details.textContent = describe(ev);
+    if (ev.entry_id != null) {
+      const ref = document.createElement('span');
+      ref.className = 'entry-ref';
+      ref.textContent = ` · Entry #${ev.entry_id}`;
+      details.appendChild(ref);
+    }
+
+    const device = document.createElement('td');
+    device.className = 'a-device';
+    device.textContent = deviceText(ev.user_agent);
+    if (ev.ip) {
+      const ip = document.createElement('span');
+      ip.className = 'muted';
+      ip.textContent = `IP ${ev.ip}`;
+      device.appendChild(ip);
+    }
+
+    tr.append(when, action, details, device);
+    tbody.appendChild(tr);
+  }
+  $('activity-empty').hidden = activity.events.length > 0;
+  $('activity-more').hidden = !activity.hasMore;
+}
+
+$('activity-filter').addEventListener('change', () => loadActivity());
+$('activity-more').addEventListener('click', () => loadActivity({ more: true }));
+$('activity-csv').addEventListener('click', () => {
+  window.location.href = `/api/activity.csv?${new URLSearchParams({ tz })}`;
 });
 
 // Live elapsed timer while clocked in.

@@ -28,11 +28,15 @@
   <div id="app-view" hidden>
     <header class="topbar">
       <strong class="brand">Time Clock</strong>
+      <nav class="nav-tabs" aria-label="Sections">
+        <a href="#dashboard" class="nav-tab active" data-view="dashboard">Dashboard</a>
+        <a href="#data" class="nav-tab" data-view="data">Data</a>
+      </nav>
       <span id="user-email" class="muted user-email"></span>
       <button type="button" class="btn ghost" id="logout">Sign out</button>
     </header>
 
-    <main class="container">
+    <main class="container" id="dashboard-view">
       <section class="card clock-card">
         <div>
           <div id="clock-status" class="status out">Clocked out</div>
@@ -89,6 +93,44 @@
             <tbody id="entries"></tbody>
           </table>
           <p id="empty" class="muted empty" hidden>No entries in this period.</p>
+        </div>
+      </section>
+    </main>
+
+    <main class="container" id="data-view" hidden>
+      <section class="card">
+        <div class="data-head">
+          <div>
+            <h2 class="data-title">Activity log</h2>
+            <p class="muted small data-sub">Every action on your account, newest first. This log is permanent: it can't be edited or deleted.</p>
+          </div>
+          <div class="data-controls">
+            <select id="activity-filter" aria-label="Filter by action">
+              <option value="">All activity</option>
+              <option value="clocked_in">Clocked in</option>
+              <option value="clocked_out">Clocked out</option>
+              <option value="entry_added">Entry added</option>
+              <option value="entry_deleted">Entry deleted</option>
+              <option value="pdf_exported">PDF exported</option>
+              <option value="signed_in">Signed in</option>
+              <option value="sign_in_failed">Failed sign-in</option>
+              <option value="signed_out">Signed out</option>
+              <option value="account_created">Account created</option>
+            </select>
+            <button type="button" class="btn ghost" id="activity-csv">Download CSV</button>
+          </div>
+        </div>
+        <div class="table-wrap">
+          <table class="activity">
+            <thead>
+              <tr><th>When</th><th>Action</th><th>Details</th><th>Device</th></tr>
+            </thead>
+            <tbody id="activity-rows"></tbody>
+          </table>
+          <p id="activity-empty" class="muted empty" hidden>No activity yet.</p>
+        </div>
+        <div class="load-more">
+          <button type="button" class="btn ghost" id="activity-more" hidden>Load older activity</button>
         </div>
       </section>
     </main>

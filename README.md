@@ -7,6 +7,7 @@ A simple time clock web app.
 - **History & totals** – filter by **Day**, **Week**, **Weeks** (2–8 week span, e.g. a pay period), or **Month**, step back and forward with ‹ ›, and see the total hours for that range. Each row shows clock in, clock out, hours for that shift, and the running cumulative total.
 - **Add past entries** – **+ Add entry** logs a shift you forgot to clock (date, clock in, clock out). If clock out is earlier than clock in it's treated as an overnight shift. Entries can't be in the future or overlap an existing shift.
 - **Delete entries** – each row has a **Delete** button that opens a confirmation pop-up showing the entry first (Cancel is the default). Deleting the shift you're currently on clocks you out without saving it.
+- **Data tab (activity log)** – a permanent paper trail of everything done on the account: account created, sign-ins (and failed sign-in attempts), sign-outs, clock in/out, past entries added, entries deleted (with a full copy of the deleted record), and PDF exports. Each event records the exact time, IP address and device. The log is append-only (there is no way to edit or delete it), each action and its log record are saved in the same database transaction, and it can be filtered by action or downloaded as CSV.
 - **Works at any width** – full desktop, half-screen windows, tablets and phones (on phones each entry shows as a compact card).
 - **PDF export** – one page, US Letter portrait. The top shows the date range and total hours worked; below it is every transaction in the range (date, clock in, clock out, hours, cumulative hours). With a lot of entries the table shrinks its text to stay on one page; past ~90 rows it notes how many entries were left off (they're still counted in the total).
 
@@ -52,7 +53,7 @@ Without `DATABASE_URL`, data goes in a local SQLite file at `data/timeclock.db` 
 | --- | --- |
 | `api/index.js` | Vercel serverless entry (wraps the Express app) |
 | `server.js` | Express API: register/login/logout, clock in/out, list entries for a date range, PDF export |
-| `db.js` | Database layer: Postgres when `DATABASE_URL` is set, otherwise SQLite |
+| `db.js` | Database layer (`users`, `entries`, `activity`): Postgres when `DATABASE_URL` is set, otherwise SQLite |
 | `pdf.js` | One-page PDF report (PDFKit) |
 | `public/` | The web UI (plain HTML/CSS/JS) |
 | `test/` | API + PDF tests (`node --test`) |
