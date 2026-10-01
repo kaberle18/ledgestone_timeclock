@@ -40,25 +40,33 @@
     </header>
 
     <main class="container" id="dashboard-view">
-      <section class="card clock-card">
-        <div>
-          <div id="clock-status" class="status out">Clocked out</div>
-          <div id="clock-since" class="muted"></div>
-          <div id="clock-elapsed" class="elapsed"></div>
+      <section class="card clock-card" id="clock-card" data-state="out">
+        <div class="clock-info">
+          <span class="status-pill"><span class="dot" aria-hidden="true"></span><span id="clock-status">Clocked out</span></span>
+          <div id="clock-big" class="clock-big" aria-live="off"></div>
+          <div id="clock-sub" class="clock-sub"></div>
         </div>
-        <button type="button" id="clock-btn" class="btn big primary">Clock In</button>
+        <div class="clock-side">
+          <div class="today-stat"><span class="today-label">Today</span> <span id="today-hours">0.00</span> hrs</div>
+          <button type="button" id="clock-btn" class="clock-btn">
+            <svg id="clock-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"></svg>
+            <span id="clock-btn-text">Clock In</span>
+          </button>
+        </div>
       </section>
 
       <section class="card">
         <div class="filter-row">
-          <div class="period-group">
+          <div class="select-pill">
             <select id="period-select" aria-label="Time period">
               <option value="day">Day</option>
               <option value="week">Week</option>
               <option value="weeks">Weeks</option>
               <option value="month">Month</option>
             </select>
-            <select id="pick-weeks" hidden aria-label="Number of weeks">
+          </div>
+          <div class="select-pill" id="weeks-pill" hidden>
+            <select id="pick-weeks" aria-label="Number of weeks">
               <option value="2">2 weeks</option>
               <option value="3">3 weeks</option>
               <option value="4">4 weeks</option>
@@ -66,27 +74,33 @@
               <option value="8">8 weeks</option>
             </select>
           </div>
-          <div class="date-group">
-            <button type="button" class="btn ghost icon" id="prev" aria-label="Previous">‹</button>
-            <input type="date" id="pick-date" aria-label="Date">
-            <input type="month" id="pick-month" hidden aria-label="Month">
-            <button type="button" class="btn ghost icon" id="next" aria-label="Next">›</button>
-            <button type="button" class="btn ghost" id="today">Today</button>
+          <div class="range-nav">
+            <button type="button" class="nav-arrow" id="prev" aria-label="Previous period">‹</button>
+            <button type="button" class="range-button" id="range-button" aria-label="Choose date">
+              <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+              <span id="range-label"></span>
+            </button>
+            <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
+            <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
+          </div>
+          <button type="button" class="btn ghost pill" id="today">Today</button>
+          <div class="toolbar-actions">
+            <button type="button" class="btn ghost sm" id="add-entry">+ Add entry</button>
+            <button type="button" class="btn primary sm icon-btn" id="export" title="Export this period as a one-page PDF">
+              <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M12 3v12M7 8l5-5 5 5M5 13v6a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-6"/></svg>
+              Export
+            </button>
           </div>
         </div>
 
         <div class="summary">
           <div>
-            <div class="label">Date range</div>
-            <div id="range-label" class="value"></div>
-          </div>
-          <div>
             <div class="label">Total hours</div>
             <div class="value"><span id="total-hours">0.00</span> <span id="total-hm" class="muted small"></span></div>
           </div>
-          <div class="summary-action">
-            <button type="button" class="btn ghost" id="add-entry">+ Add entry</button>
-            <button type="button" class="btn primary" id="export">Export PDF</button>
+          <div>
+            <div class="label">Entries</div>
+            <div class="value" id="entry-count">0</div>
           </div>
         </div>
 
@@ -107,7 +121,7 @@
         <div class="data-head">
           <div>
             <h2 class="data-title">Activity log</h2>
-            <p class="muted small data-sub">Every action on your account, newest first. This log is permanent: it can't be edited or deleted.</p>
+            <p class="muted small data-sub">Every action on your account, newest first. Entries here can't be edited or removed; the log is only cleared by <strong>Delete all data</strong> on the Profile tab.</p>
           </div>
           <div class="data-controls">
             <select id="activity-filter" aria-label="Filter by action">
@@ -117,7 +131,6 @@
                 <option value="clocked_out">Clock out (live)</option>
                 <option value="entry_added">Manual entry (logged by hand)</option>
                 <option value="entry_deleted">Entry deleted</option>
-                <option value="all_data_deleted">All data deleted</option>
               </optgroup>
               <optgroup label="Reports">
                 <option value="pdf_exported">PDF exported</option>
@@ -161,7 +174,7 @@
             <input type="file" id="photo-input" accept="image/*" hidden>
             <button type="button" class="btn ghost" id="photo-upload">Upload photo</button>
             <button type="button" class="btn ghost" id="photo-remove" hidden>Remove photo</button>
-            <p class="muted small">Shown in the top bar. JPEG, PNG or similar; it's cropped to a square.</p>
+            <p class="muted small">Shown in the top bar. After choosing a photo you can drag and zoom to crop it.</p>
           </div>
         </div>
         <form id="name-form" class="stack">
@@ -206,7 +219,7 @@
         <div class="danger-row">
           <div>
             <div class="strong">Delete all data</div>
-            <p class="muted small">Permanently deletes every clock-in/clock-out entry. Your account and activity log are kept.</p>
+            <p class="muted small">Permanently deletes every clock-in/clock-out entry and everything on the Data tab. Your account, name and photo are kept.</p>
           </div>
           <button type="button" class="btn danger" id="delete-data">Delete all data</button>
         </div>
@@ -220,6 +233,34 @@
       </section>
     </main>
   </div>
+
+  <!-- Profile photo cropper -->
+  <dialog id="crop-dialog" class="crop-dialog" aria-labelledby="crop-title">
+    <h2 id="crop-title">Crop your photo</h2>
+    <p class="muted small crop-help">Drag to move. Zoom with the slider, mouse wheel or pinch. Only what's inside the circle is used.</p>
+    <div id="crop-frame" class="crop-frame">
+      <div id="crop-stage" class="crop-stage" tabindex="0" aria-label="Photo crop area. Arrow keys move the photo, plus and minus zoom.">
+        <img id="crop-img" alt="" draggable="false">
+        <div class="crop-mask" aria-hidden="true"></div>
+      </div>
+    </div>
+    <div class="zoom-row">
+      <button type="button" class="btn ghost icon" id="crop-zoom-out" aria-label="Zoom out">−</button>
+      <input type="range" id="crop-zoom" min="1" max="4" step="0.01" value="1" aria-label="Zoom">
+      <button type="button" class="btn ghost icon" id="crop-zoom-in" aria-label="Zoom in">+</button>
+    </div>
+    <div class="crop-previews">
+      <span class="muted small">Preview</span>
+      <canvas id="crop-preview-lg" class="crop-preview" style="width:72px;height:72px"></canvas>
+      <canvas id="crop-preview-sm" class="crop-preview" style="width:34px;height:34px"></canvas>
+      <button type="button" class="btn ghost sm" id="crop-choose">Change photo</button>
+    </div>
+    <p id="crop-error" class="error" hidden></p>
+    <div class="dialog-actions crop-actions">
+      <button type="button" class="btn ghost" id="crop-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="crop-save">Save photo</button>
+    </div>
+  </dialog>
 
   <!-- Delete all data / delete account confirmation -->
   <dialog id="danger-dialog" aria-labelledby="danger-title">

@@ -16,7 +16,6 @@ async function api(path, options = {}) {
 
 const pad2 = (n) => String(n).padStart(2, '0');
 const toDateInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
-const toMonthInput = (d) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}`;
 const parseDateInput = (s) => { const [y, m, d] = s.split('-').map(Number); return new Date(y, m - 1, d || 1); };
 const addDays = (d, n) => new Date(d.getFullYear(), d.getMonth(), d.getDate() + n);
 const startOfWeek = (d) => addDays(d, -d.getDay()); // weeks start Sunday
@@ -70,10 +69,18 @@ function currentRange() {
   return { from, to };
 }
 
+const fmtMonthYear = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
+const fmtMonthDay = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric' });
+
+// Friendly label for the selected period, e.g. "October 2026" or "Sep 27 – Oct 3, 2026".
 function rangeLabel({ from, to }) {
   const last = addDays(to, -1);
-  const a = fmtDate.format(from), b = fmtDate.format(last);
-  return a === b ? fmtDay.format(from) + ', ' + from.getFullYear() : `${a} – ${b}`;
+  if (state.period === 'month') return fmtMonthYear.format(from);
+  if (state.period === 'day') return `${fmtDay.format(from)}, ${from.getFullYear()}`;
+  if (from.getFullYear() === last.getFullYear()) {
+    return `${fmtMonthDay.format(from)} – ${fmtMonthDay.format(last)}, ${last.getFullYear()}`;
+  }
+  return `${fmtDate.format(from)} – ${fmtDate.format(last)}`;
 }
 
 function shiftAnchor(dir) {
@@ -115,36 +122,70 @@ function route() {
 }
 window.addEventListener('hashchange', route);
 
+const fmtClockTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' });
+const fmtLongDate = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+const ICON_PLAY = '<path fill="currentColor" d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z"/>';
+const ICON_STOP = '<rect x="6" y="6" width="12" height="12" rx="2.5" fill="currentColor"/>';
+
+// Today's hours (local day), including the shift in progress.
+function todayHours() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = addDays(start, 1);
+  const now = Date.now();
+  return (state.todayEntries || []).reduce((sum, e) => {
+    const a = Math.max(new Date(e.clock_in).getTime(), start.getTime());
+    const b = Math.min(e.clock_out ? new Date(e.clock_out).getTime() : now, end.getTime());
+    return sum + Math.max(0, b - a) / 3_600_000;
+  }, 0);
+}
+
+// Updates the parts of the clock card that change every second.
+function tickClock() {
+  const now = new Date();
+  if (state.active) {
+    $('clock-big').textContent = fmtElapsed(now - new Date(state.active.clock_in));
+  } else {
+    $('clock-big').textContent = fmtClockTime.format(now);
+    $('clock-sub').textContent = fmtLongDate.format(now);
+  }
+  $('today-hours').textContent = todayHours().toFixed(2);
+}
+
 function renderClock() {
   const btn = $('clock-btn');
-  if (state.active) {
-    $('clock-status').textContent = 'Clocked in';
-    $('clock-status').className = 'status in';
+  const on = !!state.active;
+  $('clock-card').dataset.state = on ? 'in' : 'out';
+  $('clock-status').textContent = on ? 'On the clock' : 'Clocked out';
+  if (on) {
     const since = new Date(state.active.clock_in);
-    $('clock-since').textContent = `Since ${fmtTime.format(since)} on ${fmtDay.format(since)}`;
-    $('clock-elapsed').textContent = fmtElapsed(Date.now() - since);
-    btn.textContent = 'Clock Out';
-    btn.className = 'btn big danger';
-  } else {
-    $('clock-status').textContent = 'Clocked out';
-    $('clock-status').className = 'status out';
-    $('clock-since').textContent = 'Press Clock In to start your shift.';
-    $('clock-elapsed').textContent = '';
-    btn.textContent = 'Clock In';
-    btn.className = 'btn big primary';
+    const sameDay = since.toDateString() === new Date().toDateString();
+    $('clock-sub').textContent = `Started ${fmtTime.format(since)}${sameDay ? '' : ` on ${fmtDay.format(since)}`}`;
   }
+  $('clock-btn-text').textContent = on ? 'Clock Out' : 'Clock In';
+  $('clock-icon').innerHTML = on ? ICON_STOP : ICON_PLAY;
+  btn.className = `clock-btn ${on ? 'out' : 'in'}`;
+  tickClock();
+}
+
+// Loads entries that touch today (a shift from last night can run into today).
+async function loadToday() {
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const qs = new URLSearchParams({ from: addDays(start, -1).toISOString(), to: addDays(start, 1).toISOString() });
+  try {
+    state.todayEntries = (await api(`/api/entries?${qs}`)).entries;
+  } catch { /* the card still works without it */ }
+  tickClock();
 }
 
 function renderFilters() {
   $('period-select').value = state.period;
-  const isMonth = state.period === 'month';
-  $('pick-date').hidden = isMonth;
-  $('pick-month').hidden = !isMonth;
-  $('pick-weeks').hidden = state.period !== 'weeks';
+  $('weeks-pill').hidden = state.period !== 'weeks';
   $('pick-date').value = toDateInput(state.anchor);
-  $('pick-month').value = toMonthInput(state.anchor);
   $('pick-weeks').value = String(state.weeks);
-  $('range-label').textContent = rangeLabel(currentRange());
+  const range = currentRange();
+  $('range-label').textContent = rangeLabel(range);
+  const now = new Date();
+  $('today').disabled = now >= range.from && now < range.to; // already showing today
 }
 
 function renderEntries() {
@@ -193,6 +234,7 @@ function renderEntries() {
   $('empty').hidden = state.entries.length > 0;
   $('total-hours').textContent = cumulative.toFixed(2);
   $('total-hm').textContent = `(${fmtHM(cumulative)})`;
+  $('entry-count').textContent = String(state.entries.length);
 }
 
 // ---------- data ----------
@@ -200,11 +242,13 @@ async function refreshStatus() {
   const { active } = await api('/api/status');
   state.active = active;
   renderClock();
+  loadToday();
 }
 
 let loadSeq = 0;
 async function loadEntries() {
   renderFilters();
+  loadToday(); // entries may have changed today's total
   const { from, to } = currentRange();
   const seq = ++loadSeq;
   const qs = new URLSearchParams({ from: from.toISOString(), to: to.toISOString() });
@@ -282,10 +326,18 @@ $('pick-date').addEventListener('change', (e) => {
   state.anchor = parseDateInput(e.target.value);
   loadEntries();
 });
-$('pick-month').addEventListener('change', (e) => {
-  if (!e.target.value) return;
-  state.anchor = parseDateInput(e.target.value);
-  loadEntries();
+// The range label opens the browser's calendar (via a hidden date input).
+// In month mode any day picked selects that month.
+const pickDate = $('pick-date');
+const canShowPicker = typeof HTMLInputElement !== 'undefined' && 'showPicker' in HTMLInputElement.prototype;
+if (!canShowPicker) pickDate.classList.add('overlay'); // older browsers: tap the input directly
+$('range-button').addEventListener('click', () => {
+  try {
+    pickDate.showPicker();
+  } catch {
+    pickDate.focus();
+    pickDate.click();
+  }
 });
 $('pick-weeks').addEventListener('change', (e) => {
   state.weeks = Number(e.target.value);
@@ -629,27 +681,189 @@ profileForm('password-form', async (f) => {
   return 'Password changed. Other devices have been signed out.';
 });
 
-// Crops the chosen image to a centered square and shrinks it to 256px JPEG.
-function resizePhoto(file) {
+// ----- Photo cropper: drag to position, zoom, circle shows the final avatar -----
+const OUTPUT_SIZE = 256;   // saved avatar is 256x256 JPEG
+const MAX_ZOOM = 4;
+const crop = { img: null, url: null, view: 0, base: 1, zoom: 1, x: 0, y: 0, pointers: new Map(), pinch: null };
+
+function loadImage(file) {
   return new Promise((resolve, reject) => {
     const url = URL.createObjectURL(file);
     const img = new Image();
-    img.onload = () => {
-      const size = 256;
-      const side = Math.min(img.naturalWidth, img.naturalHeight);
-      const canvas = document.createElement('canvas');
-      canvas.width = canvas.height = size;
-      const ctx = canvas.getContext('2d');
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, size, size);
-      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
-      URL.revokeObjectURL(url);
-      resolve(canvas.toDataURL('image/jpeg', 0.85));
-    };
+    img.onload = () => resolve({ img, url });
     img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file isn't an image this browser can read")); };
     img.src = url;
   });
 }
+
+const cropScale = () => crop.base * crop.zoom;
+
+// Keep the image covering the whole crop area (no empty edges inside the circle).
+function clampCrop() {
+  const s = cropScale();
+  const w = crop.img.naturalWidth * s;
+  const h = crop.img.naturalHeight * s;
+  crop.x = Math.min(0, Math.max(crop.view - w, crop.x));
+  crop.y = Math.min(0, Math.max(crop.view - h, crop.y));
+}
+
+// Zoom while keeping the point (px, py) of the crop area fixed (default: center).
+function setZoom(zoom, px = crop.view / 2, py = crop.view / 2) {
+  const before = cropScale();
+  crop.zoom = Math.min(MAX_ZOOM, Math.max(1, zoom));
+  const after = cropScale();
+  crop.x = px - ((px - crop.x) / before) * after;
+  crop.y = py - ((py - crop.y) / before) * after;
+  $('crop-zoom').value = String(crop.zoom);
+  drawCrop();
+}
+
+// Source rectangle (in image pixels) that ends up inside the circle.
+function cropSource() {
+  const s = cropScale();
+  return { sx: -crop.x / s, sy: -crop.y / s, size: crop.view / s };
+}
+
+function paintCanvas(canvas, size) {
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = canvas.height = Math.round(size * dpr);
+  const ctx = canvas.getContext('2d');
+  const { sx, sy, size: ss } = cropSource();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(crop.img, sx, sy, ss, ss, 0, 0, canvas.width, canvas.height);
+}
+
+let cropFrame = 0;
+function drawCrop() {
+  clampCrop();
+  $('crop-img').style.transform = `translate(${crop.x}px, ${crop.y}px) scale(${cropScale()})`;
+  cancelAnimationFrame(cropFrame);
+  cropFrame = requestAnimationFrame(() => {
+    paintCanvas($('crop-preview-lg'), 72);
+    paintCanvas($('crop-preview-sm'), 34);
+  });
+}
+
+function openCropper({ img, url }) {
+  crop.img = img;
+  crop.url = url;
+  const el = $('crop-img');
+  el.src = url;
+  el.style.width = `${img.naturalWidth}px`;
+  el.style.height = `${img.naturalHeight}px`;
+  $('crop-error').hidden = true;
+  $('crop-dialog').showModal();
+  crop.view = $('crop-stage').clientWidth;
+  crop.base = crop.view / Math.min(img.naturalWidth, img.naturalHeight);
+  crop.zoom = 1;
+  $('crop-zoom').value = '1';
+  // start centered
+  crop.x = (crop.view - img.naturalWidth * crop.base) / 2;
+  crop.y = (crop.view - img.naturalHeight * crop.base) / 2;
+  drawCrop();
+  $('crop-stage').focus();
+}
+
+function closeCropper() {
+  $('crop-dialog').close();
+}
+$('crop-dialog').addEventListener('close', () => {
+  if (crop.url) URL.revokeObjectURL(crop.url);
+  crop.url = null;
+  crop.img = null;
+  crop.pointers.clear();
+  $('crop-img').removeAttribute('src');
+});
+
+// Dragging (mouse/touch/pen) and two-finger pinch zoom.
+// Listeners sit on the frame (stage + dimmed margin) so you can drag from anywhere;
+// coordinates are measured relative to the circle's square.
+const stage = $('crop-stage');
+const frame = $('crop-frame');
+const stagePoint = (e) => {
+  const r = stage.getBoundingClientRect();
+  return { x: (e.clientX - r.left) * (crop.view / r.width), y: (e.clientY - r.top) * (crop.view / r.height) };
+};
+frame.addEventListener('pointerdown', (e) => {
+  if (!crop.img) return;
+  frame.setPointerCapture(e.pointerId);
+  crop.pointers.set(e.pointerId, stagePoint(e));
+  crop.pinch = null;
+  frame.classList.add('dragging');
+});
+frame.addEventListener('pointermove', (e) => {
+  if (!crop.pointers.has(e.pointerId)) return;
+  const prev = crop.pointers.get(e.pointerId);
+  const now = stagePoint(e);
+  crop.pointers.set(e.pointerId, now);
+  if (crop.pointers.size === 1) {
+    crop.x += now.x - prev.x;
+    crop.y += now.y - prev.y;
+    drawCrop();
+  } else if (crop.pointers.size === 2) {
+    const [a, b] = [...crop.pointers.values()];
+    const dist = Math.hypot(a.x - b.x, a.y - b.y);
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    if (crop.pinch) setZoom(crop.zoom * (dist / crop.pinch), mid.x, mid.y);
+    crop.pinch = dist;
+  }
+});
+const endPointer = (e) => {
+  crop.pointers.delete(e.pointerId);
+  crop.pinch = null;
+  if (!crop.pointers.size) frame.classList.remove('dragging');
+};
+frame.addEventListener('pointerup', endPointer);
+frame.addEventListener('pointercancel', endPointer);
+frame.addEventListener('wheel', (e) => {
+  if (!crop.img) return;
+  e.preventDefault();
+  const p = stagePoint(e);
+  setZoom(crop.zoom * Math.exp(-e.deltaY * 0.0015), p.x, p.y);
+}, { passive: false });
+// Arrow keys nudge, +/- zoom (keyboard users)
+stage.addEventListener('keydown', (e) => {
+  const step = e.shiftKey ? 20 : 5;
+  const moves = { ArrowLeft: [step, 0], ArrowRight: [-step, 0], ArrowUp: [0, step], ArrowDown: [0, -step] };
+  if (moves[e.key]) {
+    crop.x += moves[e.key][0];
+    crop.y += moves[e.key][1];
+    drawCrop();
+  } else if (e.key === '+' || e.key === '=') setZoom(crop.zoom * 1.1);
+  else if (e.key === '-') setZoom(crop.zoom / 1.1);
+  else return;
+  e.preventDefault();
+});
+$('crop-zoom').addEventListener('input', (e) => setZoom(Number(e.target.value)));
+$('crop-zoom-out').addEventListener('click', () => setZoom(crop.zoom / 1.2));
+$('crop-zoom-in').addEventListener('click', () => setZoom(crop.zoom * 1.2));
+$('crop-cancel').addEventListener('click', closeCropper);
+$('crop-choose').addEventListener('click', () => $('photo-input').click());
+
+$('crop-save').addEventListener('click', async () => {
+  const canvas = document.createElement('canvas');
+  canvas.width = canvas.height = OUTPUT_SIZE;
+  const ctx = canvas.getContext('2d');
+  const { sx, sy, size } = cropSource();
+  ctx.fillStyle = '#fff';
+  ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+  ctx.imageSmoothingQuality = 'high';
+  ctx.drawImage(crop.img, sx, sy, size, size, 0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
+  const photo = canvas.toDataURL('image/jpeg', 0.88);
+  $('crop-save').disabled = true;
+  try {
+    const { user } = await api('/api/profile/photo', { method: 'PUT', body: { photo } });
+    setUser(user);
+    closeCropper();
+  } catch (err) {
+    $('crop-error').textContent = err.message;
+    $('crop-error').hidden = false;
+  } finally {
+    $('crop-save').disabled = false;
+  }
+});
 
 $('photo-upload').addEventListener('click', () => $('photo-input').click());
 $('photo-input').addEventListener('change', async (ev) => {
@@ -657,9 +871,9 @@ $('photo-input').addEventListener('change', async (ev) => {
   ev.target.value = '';
   if (!file) return;
   try {
-    const photo = await resizePhoto(file);
-    const { user } = await api('/api/profile/photo', { method: 'PUT', body: { photo } });
-    setUser(user);
+    const loaded = await loadImage(file);
+    if ($('crop-dialog').open) closeCropper(); // "Choose another photo" from inside the cropper
+    openCropper(loaded);
   } catch (err) {
     alert(err.message);
   }
@@ -684,7 +898,7 @@ function openDanger(kind) {
   $('danger-title').textContent = account ? 'Delete your account?' : 'Delete all data?';
   $('danger-text').textContent = account
     ? 'This permanently deletes your account, every clock-in/clock-out entry and your activity log, then signs you out. This cannot be undone.'
-    : 'Confirm you want to delete all data. Every clock-in/clock-out entry will be permanently deleted and your totals will go to zero. Your account and activity log are kept. This cannot be undone.';
+    : 'Confirm you want to delete all data. Every clock-in/clock-out entry and everything on the Data tab will be permanently deleted. Your account, name and photo are kept. This cannot be undone.';
   $('danger-password-label').hidden = !account;
   f.password.required = account;
   $('danger-confirm').textContent = account ? 'Delete account' : 'Delete all data';
@@ -723,7 +937,7 @@ $('danger-form').addEventListener('submit', async (ev) => {
       const { deleted } = await api('/api/profile/delete-data', { method: 'POST', body: { confirm: 'DELETE' } });
       $('danger-dialog').close();
       await refreshStatus();
-      alert(`Deleted ${deleted} ${deleted === 1 ? 'entry' : 'entries'}.`);
+      alert(`All data deleted (${deleted} ${deleted === 1 ? 'entry' : 'entries'} and the activity log).`);
     }
   } catch (err) {
     $('danger-error').textContent = err.message;
@@ -732,11 +946,8 @@ $('danger-form').addEventListener('submit', async (ev) => {
   }
 });
 
-// Live elapsed timer while clocked in.
-setInterval(() => {
-  if (!state.active) return;
-  $('clock-elapsed').textContent = fmtElapsed(Date.now() - new Date(state.active.clock_in));
-}, 1000);
+// Live clock / elapsed timer and today's hours.
+setInterval(() => { if (state.user) tickClock(); }, 1000);
 
 // ---------- boot ----------
 api('/api/me')

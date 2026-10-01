@@ -232,7 +232,14 @@ test('profile: name, photo, email, password, delete data, delete account', async
   assert.equal((await call('/api/login', { method: 'POST', body: { email: 'new@x.co', password: 'pw' } })).status, 401);
   assert.equal((await call('/api/login', { method: 'POST', body: { email: 'new@x.co', password: 'pw2' } })).status, 200);
 
-  // Delete all data: entries gone, log kept with a copy
+  // Check the profile changes were logged before wiping
+  const { events } = await json(await call('/api/activity'));
+  for (const a of ['name_changed', 'photo_updated', 'photo_removed', 'email_changed', 'password_changed']) {
+    assert.ok(events.some((e) => e.action === a), a);
+  }
+  assert.deepEqual(events.find((e) => e.action === 'email_changed').details, { from: 'p@x.co', to: 'new@x.co' });
+
+  // Delete all data: entries AND activity log wiped, account kept
   await call('/api/clock-in', { method: 'POST' });
   await call('/api/clock-out', { method: 'POST' });
   await call('/api/entries', { method: 'POST', body: { clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T17:00:00.000Z' } });
@@ -241,15 +248,11 @@ test('profile: name, photo, email, password, delete data, delete account', async
   assert.equal(r.deleted, 2);
   const all = 'from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z';
   assert.equal((await json(await call(`/api/entries?${all}`))).entries.length, 0);
-  const { events } = await json(await call('/api/activity'));
-  const wipe = events[0];
-  assert.equal(wipe.action, 'all_data_deleted');
-  assert.equal(wipe.details.entries, 2);
-  assert.deepEqual(wipe.details.records.map((e) => e.source).sort(), ['clock', 'manual']);
-  for (const a of ['name_changed', 'photo_updated', 'photo_removed', 'email_changed', 'password_changed']) {
-    assert.ok(events.some((e) => e.action === a), a);
-  }
-  assert.deepEqual(events.find((e) => e.action === 'email_changed').details, { from: 'p@x.co', to: 'new@x.co' });
+  assert.equal((await json(await call('/api/activity'))).events.length, 0, 'activity log wiped');
+  assert.equal((await json(await call('/api/me'))).user.name, 'Kamden Aberle', 'account kept');
+  // Logging carries on afterwards
+  await call('/api/clock-in', { method: 'POST' });
+  assert.deepEqual((await json(await call('/api/activity'))).events.map((e) => e.action), ['clocked_in']);
 
   // Delete account
   await call('/api/clock-in', { method: 'POST' });

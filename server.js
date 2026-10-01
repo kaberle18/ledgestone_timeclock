@@ -298,17 +298,14 @@ function createApp(providedDb) {
     res.json({ ok: true });
   });
 
-  // Deletes every time entry. The activity log is kept (it's the paper trail),
-  // and gets a record of the wipe including a copy of everything removed.
+  // Wipes all of the user's data: every time entry and the whole activity log.
+  // The account itself (email, password, name, photo) is kept.
   app.post('/api/profile/delete-data', auth, async (req, res) => {
     if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
     const count = await inTx(async (t) => {
       const entries = await t.allEntries(req.user.id);
-      const total = entries.reduce((sum, e) => sum + hours(e.clock_in, e.clock_out || new Date().toISOString()), 0);
       await t.deleteAllEntries(req.user.id);
-      await t.log(req, req.user.id, 'all_data_deleted', {
-        details: { entries: entries.length, total_hours: Math.round(total * 100) / 100, records: entries },
-      });
+      await t.deleteActivity(req.user.id);
       return entries.length;
     });
     res.json({ ok: true, deleted: count });
