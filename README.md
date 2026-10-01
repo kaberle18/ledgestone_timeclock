@@ -56,6 +56,7 @@ Without `DATABASE_URL`, data goes in a local SQLite file at `data/timeclock.db` 
 | `server.js` | Express API: register/login/logout, clock in/out, list entries for a date range, PDF export |
 | `db.js` | Database layer (`users`, `entries`, `activity`; adds new columns automatically on upgrade): Postgres when `DATABASE_URL` is set, otherwise SQLite |
 | `pdf.js` | One-page PDF report (PDFKit) |
+| `fonts/` | Liberation Sans (SIL OFL 1.1) used in the PDF. Bundled because PDFKit's built-in fonts are loaded dynamically and get left out of Vercel's function bundle |
 | `public/` | The web UI (plain HTML/CSS/JS) |
 | `test/` | API + PDF tests (`node --test`) |
 

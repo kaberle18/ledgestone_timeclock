@@ -1,4 +1,18 @@
+const fs = require('node:fs');
+const path = require('node:path');
 const PDFDocument = require('pdfkit');
+
+// Fonts ship with the app (Liberation Sans, SIL OFL 1.1, metric-compatible with
+// Helvetica). PDFKit's built-in fonts are loaded with a dynamic require that
+// Vercel's bundler can't see, so on Vercel they're missing ("Cannot find module
+// .../standard-fonts/Helvetica.cjs"). Reading these with plain path.join keeps
+// them in the bundle, and passing one as the default font means PDFKit never
+// touches its built-in fonts at all.
+const FONTS = {
+  regular: fs.readFileSync(path.join(__dirname, 'fonts', 'LiberationSans-Regular.ttf')),
+  bold: fs.readFileSync(path.join(__dirname, 'fonts', 'LiberationSans-Bold.ttf')),
+  italic: fs.readFileSync(path.join(__dirname, 'fonts', 'LiberationSans-Italic.ttf')),
+};
 
 const PAGE = { width: 612, height: 792 }; // US Letter, portrait (points)
 const MARGIN = 50;
@@ -51,11 +65,15 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
 
   // Margins are handled manually so PDFKit never adds a second page.
   const doc = new PDFDocument({
+    font: FONTS.regular, // instead of the built-in Helvetica (see FONTS above)
     size: 'LETTER',
     layout: 'portrait',
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
     info: { Title: 'Time Clock Report', Author: email },
   });
+  doc.registerFont('Regular', FONTS.regular);
+  doc.registerFont('Bold', FONTS.bold);
+  doc.registerFont('Italic', FONTS.italic);
   doc.pipe(stream);
 
   const contentW = PAGE.width - MARGIN * 2;
@@ -63,9 +81,9 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
 
   // ---- Header ----
   let y = MARGIN;
-  doc.font('Helvetica-Bold').fontSize(20).fillColor('#111');
+  doc.font('Bold').fontSize(20).fillColor('#111');
   text('Time Clock Report', MARGIN, y);
-  doc.font('Helvetica').fontSize(10).fillColor('#555');
+  doc.font('Regular').fontSize(10).fillColor('#555');
   text(email, MARGIN, y + 6, { width: contentW, align: 'right' });
   y += 34;
 
@@ -77,14 +95,14 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
   // Summary box: date range + total hours
   const boxH = 64;
   doc.roundedRect(MARGIN, y, contentW, boxH, 6).fillAndStroke('#f3f5f9', '#d5dbe5');
-  doc.fillColor('#555').font('Helvetica').fontSize(9);
+  doc.fillColor('#555').font('Regular').fontSize(9);
   text('DATE RANGE', MARGIN + 16, y + 14);
   text('TOTAL HOURS WORKED', MARGIN + contentW / 2 + 16, y + 14);
-  doc.fillColor('#111').font('Helvetica-Bold').fontSize(16);
+  doc.fillColor('#111').font('Bold').fontSize(16);
   text(rangeLabel, MARGIN + 16, y + 30, { width: contentW / 2 - 24, ellipsis: true });
   text(`${fmtHours(total)} hrs`, MARGIN + contentW / 2 + 16, y + 30);
   const totalW = doc.widthOfString(`${fmtHours(total)} hrs`);
-  doc.font('Helvetica').fontSize(10).fillColor('#555');
+  doc.font('Regular').fontSize(10).fillColor('#555');
   text(`(${fmtHM(total)}) · ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`,
     MARGIN + contentW / 2 + 22 + totalW, y + 35);
   y += boxH + 22;
@@ -108,7 +126,7 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
     }
   };
 
-  doc.font('Helvetica-Bold').fontSize(10).fillColor('#111');
+  doc.font('Bold').fontSize(10).fillColor('#111');
   text('Transactions', MARGIN, y);
   y += 18;
 
@@ -131,11 +149,11 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
 
   // Header row
   doc.rect(MARGIN, y - 5, contentW, 20).fill('#1f2a44');
-  doc.fillColor('#fff').font('Helvetica-Bold').fontSize(9);
+  doc.fillColor('#fff').font('Bold').fontSize(9);
   drawCells(Object.fromEntries(cols.map((c) => [c.key, c.label])));
   y += 20;
 
-  doc.font('Helvetica').fontSize(fontSize);
+  doc.font('Regular').fontSize(fontSize);
   if (rows.length === 0) {
     doc.fillColor('#777');
     text('No clock-in/clock-out activity in this date range.', MARGIN + pad, y + 4);
@@ -155,13 +173,13 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
     y += rowH;
   });
   if (hidden > 0) {
-    doc.fillColor('#a33').font('Helvetica-Oblique');
+    doc.fillColor('#a33').font('Italic');
     text(`+ ${hidden} more ${hidden === 1 ? 'entry' : 'entries'} not shown (included in total above).`,
       MARGIN + pad, y);
   }
 
   // ---- Footer ----
-  doc.font('Helvetica').fontSize(8).fillColor('#888');
+  doc.font('Regular').fontSize(8).fillColor('#888');
   const generated = new Intl.DateTimeFormat('en-US', {
     timeZone: tz, dateStyle: 'medium', timeStyle: 'short',
   }).format(now);
