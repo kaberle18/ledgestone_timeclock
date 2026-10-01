@@ -31,9 +31,12 @@
       <nav class="nav-tabs" aria-label="Sections">
         <a href="#dashboard" class="nav-tab active" data-view="dashboard">Dashboard</a>
         <a href="#data" class="nav-tab" data-view="data">Data</a>
+        <a href="#profile" class="nav-tab" data-view="profile">Profile</a>
       </nav>
-      <span id="user-email" class="muted user-email"></span>
-      <button type="button" class="btn ghost" id="logout">Sign out</button>
+      <a href="#profile" class="user-chip" title="Your profile">
+        <span id="top-name" class="user-name"></span>
+        <span id="top-avatar" class="avatar sm" aria-hidden="true"></span>
+      </a>
     </header>
 
     <main class="container" id="dashboard-view">
@@ -48,16 +51,13 @@
 
       <section class="card">
         <div class="filter-row">
-          <div class="tabs" id="period-tabs">
-            <button type="button" class="tab active" data-period="day">Day</button>
-            <button type="button" class="tab" data-period="week">Week</button>
-            <button type="button" class="tab" data-period="weeks">Weeks</button>
-            <button type="button" class="tab" data-period="month">Month</button>
-          </div>
-          <div class="pickers">
-            <button type="button" class="btn ghost icon" id="prev" aria-label="Previous">‹</button>
-            <input type="date" id="pick-date">
-            <input type="month" id="pick-month" hidden>
+          <div class="period-group">
+            <select id="period-select" aria-label="Time period">
+              <option value="day">Day</option>
+              <option value="week">Week</option>
+              <option value="weeks">Weeks</option>
+              <option value="month">Month</option>
+            </select>
             <select id="pick-weeks" hidden aria-label="Number of weeks">
               <option value="2">2 weeks</option>
               <option value="3">3 weeks</option>
@@ -65,6 +65,11 @@
               <option value="6">6 weeks</option>
               <option value="8">8 weeks</option>
             </select>
+          </div>
+          <div class="date-group">
+            <button type="button" class="btn ghost icon" id="prev" aria-label="Previous">‹</button>
+            <input type="date" id="pick-date" aria-label="Date">
+            <input type="month" id="pick-month" hidden aria-label="Month">
             <button type="button" class="btn ghost icon" id="next" aria-label="Next">›</button>
             <button type="button" class="btn ghost" id="today">Today</button>
           </div>
@@ -107,15 +112,27 @@
           <div class="data-controls">
             <select id="activity-filter" aria-label="Filter by action">
               <option value="">All activity</option>
-              <option value="clocked_in">Clocked in</option>
-              <option value="clocked_out">Clocked out</option>
-              <option value="entry_added">Entry added</option>
-              <option value="entry_deleted">Entry deleted</option>
-              <option value="pdf_exported">PDF exported</option>
-              <option value="signed_in">Signed in</option>
-              <option value="sign_in_failed">Failed sign-in</option>
-              <option value="signed_out">Signed out</option>
-              <option value="account_created">Account created</option>
+              <optgroup label="Time">
+                <option value="clocked_in">Clock in (live)</option>
+                <option value="clocked_out">Clock out (live)</option>
+                <option value="entry_added">Manual entry (logged by hand)</option>
+                <option value="entry_deleted">Entry deleted</option>
+                <option value="all_data_deleted">All data deleted</option>
+              </optgroup>
+              <optgroup label="Reports">
+                <option value="pdf_exported">PDF exported</option>
+              </optgroup>
+              <optgroup label="Account">
+                <option value="signed_in">Signed in</option>
+                <option value="sign_in_failed">Failed sign-in</option>
+                <option value="signed_out">Signed out</option>
+                <option value="name_changed">Name changed</option>
+                <option value="email_changed">Email changed</option>
+                <option value="password_changed">Password changed</option>
+                <option value="photo_updated">Photo updated</option>
+                <option value="photo_removed">Photo removed</option>
+                <option value="account_created">Account created</option>
+              </optgroup>
             </select>
             <button type="button" class="btn ghost" id="activity-csv">Download CSV</button>
           </div>
@@ -134,7 +151,90 @@
         </div>
       </section>
     </main>
+
+    <main class="container narrow" id="profile-view" hidden>
+      <section class="card">
+        <h2 class="section-title">Profile</h2>
+        <div class="profile-head">
+          <span id="profile-avatar" class="avatar lg" aria-hidden="true"></span>
+          <div class="photo-actions">
+            <input type="file" id="photo-input" accept="image/*" hidden>
+            <button type="button" class="btn ghost" id="photo-upload">Upload photo</button>
+            <button type="button" class="btn ghost" id="photo-remove" hidden>Remove photo</button>
+            <p class="muted small">Shown in the top bar. JPEG, PNG or similar; it's cropped to a square.</p>
+          </div>
+        </div>
+        <form id="name-form" class="stack">
+          <label>Name <input type="text" name="name" maxlength="80" autocomplete="name" placeholder="Your name"></label>
+          <p class="form-msg" hidden></p>
+          <div><button type="submit" class="btn primary">Save name</button></div>
+        </form>
+        <p class="muted small" id="member-since"></p>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Email</h2>
+        <p class="muted small">Current email: <strong id="current-email"></strong></p>
+        <form id="email-form" class="stack">
+          <label>New email <input type="email" name="email" autocomplete="email" required></label>
+          <label>Current password <input type="password" name="current_password" autocomplete="current-password" required></label>
+          <p class="form-msg" hidden></p>
+          <div><button type="submit" class="btn primary">Change email</button></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Password</h2>
+        <form id="password-form" class="stack">
+          <label>Current password <input type="password" name="current_password" autocomplete="current-password" required></label>
+          <label>New password <input type="password" name="new_password" autocomplete="new-password" required></label>
+          <label>Confirm new password <input type="password" name="confirm_password" autocomplete="new-password" required></label>
+          <p class="muted small">Changing your password signs you out on every other device.</p>
+          <p class="form-msg" hidden></p>
+          <div><button type="submit" class="btn primary">Change password</button></div>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2 class="section-title">Sign out</h2>
+        <p class="muted small">Sign out of Time Clock on this device.</p>
+        <button type="button" class="btn ghost" id="logout">Sign out</button>
+      </section>
+
+      <section class="card danger-zone">
+        <h2 class="section-title">Danger zone</h2>
+        <div class="danger-row">
+          <div>
+            <div class="strong">Delete all data</div>
+            <p class="muted small">Permanently deletes every clock-in/clock-out entry. Your account and activity log are kept.</p>
+          </div>
+          <button type="button" class="btn danger" id="delete-data">Delete all data</button>
+        </div>
+        <div class="danger-row">
+          <div>
+            <div class="strong">Delete account</div>
+            <p class="muted small">Permanently deletes your account, all entries and the activity log. You will be signed out.</p>
+          </div>
+          <button type="button" class="btn danger" id="delete-account">Delete account</button>
+        </div>
+      </section>
+    </main>
   </div>
+
+  <!-- Delete all data / delete account confirmation -->
+  <dialog id="danger-dialog" aria-labelledby="danger-title">
+    <form id="danger-form">
+      <h2 id="danger-title"></h2>
+      <p id="danger-text"></p>
+      <label>Type <strong>DELETE</strong> to confirm <input type="text" name="confirm" autocomplete="off" autocapitalize="characters" spellcheck="false"></label>
+      <label id="danger-password-label">Password <input type="password" name="password" autocomplete="current-password"></label>
+      <p id="danger-error" class="error" hidden></p>
+      <div class="dialog-actions">
+        <button type="button" class="btn ghost" id="danger-cancel">Cancel</button>
+        <button type="submit" class="btn danger" id="danger-confirm" disabled></button>
+      </div>
+    </form>
+  </dialog>
 
   <!-- Manually log a past shift -->
   <dialog id="entry-dialog">

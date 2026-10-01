@@ -9,7 +9,13 @@ const { renderReport } = require('./pdf');
 const ACTIONS = [
   'account_created', 'signed_in', 'sign_in_failed', 'signed_out',
   'clocked_in', 'clocked_out', 'entry_added', 'entry_deleted', 'pdf_exported',
+  'name_changed', 'email_changed', 'password_changed', 'photo_updated', 'photo_removed', 'all_data_deleted',
 ];
+
+const MAX_NAME = 80;
+// Profile photos are resized in the browser to a small JPEG and stored inline.
+const MAX_AVATAR_CHARS = 400_000;
+const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
 
 function clientIp(req) {
   const fwd = String(req.get('x-forwarded-for') || '').split(',')[0].trim();
@@ -27,7 +33,7 @@ const SESSION_DAYS = 30;
 
 function createApp(providedDb) {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use(cookieParser());
   app.use(express.static(path.join(__dirname, 'public')));
 
@@ -69,7 +75,21 @@ function createApp(providedDb) {
     const one = async (sql, params) => (await x.query(sql, params))[0];
     return {
       userByEmail: (email) => one('SELECT * FROM users WHERE email = $1', [email]),
-      userById: (id) => one('SELECT id, email, created_at FROM users WHERE id = $1', [id]),
+      userById: (id) => one(
+        'SELECT id, email, name, avatar, token_version, created_at FROM users WHERE id = $1', [id]),
+      passwordHash: async (id) => (await one('SELECT password_hash FROM users WHERE id = $1', [id]))?.password_hash,
+      setName: (id, name) => x.query('UPDATE users SET name = $1 WHERE id = $2', [name, id]),
+      setAvatar: (id, avatar) => x.query('UPDATE users SET avatar = $1 WHERE id = $2', [avatar, id]),
+      setEmail: (id, email) => x.query('UPDATE users SET email = $1 WHERE id = $2', [email, id]),
+      // Bumping token_version signs out every other session.
+      setPassword: (id, hash) => one(
+        'UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2 RETURNING token_version',
+        [hash, id]),
+      allEntries: (userId) => x.query(
+        'SELECT id, clock_in, clock_out, source FROM entries WHERE user_id = $1 ORDER BY clock_in', [userId]),
+      deleteAllEntries: (userId) => x.query('DELETE FROM entries WHERE user_id = $1', [userId]),
+      deleteUser: (userId) => x.query('DELETE FROM users WHERE id = $1', [userId]),
+      deleteActivity: (userId) => x.query('DELETE FROM activity WHERE user_id = $1', [userId]),
       insertUser: (email, hash) => one(
         'INSERT INTO users (email, password_hash, created_at) VALUES ($1, $2, $3) RETURNING id',
         [email, hash, new Date().toISOString()]),
@@ -80,7 +100,8 @@ function createApp(providedDb) {
       clockOut: (id) => one(
         'UPDATE entries SET clock_out = $1 WHERE id = $2 RETURNING *', [new Date().toISOString(), id]),
       insertEntry: (userId, clockIn, clockOut) => one(
-        'INSERT INTO entries (user_id, clock_in, clock_out) VALUES ($1, $2, $3) RETURNING *', [userId, clockIn, clockOut]),
+        "INSERT INTO entries (user_id, clock_in, clock_out, source) VALUES ($1, $2, $3, 'manual') RETURNING *",
+        [userId, clockIn, clockOut]),
       deleteEntry: (userId, id) => one('DELETE FROM entries WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]),
       // Any shift (an open one counts as running until now) that overlaps [from, to).
       overlapping: (userId, from, to) => one(
@@ -88,7 +109,7 @@ function createApp(providedDb) {
          WHERE user_id = $1 AND clock_in < $3 AND COALESCE(clock_out, $4) > $2
          ORDER BY clock_in LIMIT 1`, [userId, from, to, new Date().toISOString()]),
       range: (userId, from, to) => x.query(
-        `SELECT id, clock_in, clock_out FROM entries
+        `SELECT id, clock_in, clock_out, source FROM entries
          WHERE user_id = $1 AND clock_in >= $2 AND clock_in < $3
          ORDER BY clock_in ASC`, [userId, from, to]),
       // Append-only paper trail. There is intentionally no update/delete for it.
@@ -108,14 +129,19 @@ function createApp(providedDb) {
   const inTx = (fn) => db.transaction((tx) => fn(queries(tx)));
 
   const hours = (a, b) => Math.round(((new Date(b) - new Date(a)) / 3_600_000) * 100) / 100;
+  // source: 'clock' = live clock in/out, 'manual' = logged by hand afterwards
   const entryDetails = (e) => ({
+    source: e.source || 'clock',
     clock_in: e.clock_in,
     clock_out: e.clock_out,
     hours: e.clock_out ? hours(e.clock_in, e.clock_out) : null,
   });
 
-  function startSession(res, userId) {
-    const token = jwt.sign({ sub: userId }, secret, { expiresIn: `${SESSION_DAYS}d` });
+  // What the browser gets to see about the signed-in user.
+  const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name || '', avatar: u.avatar || null, created_at: u.created_at });
+
+  function startSession(res, userId, tokenVersion = 0) {
+    const token = jwt.sign({ sub: userId, v: tokenVersion }, secret, { expiresIn: `${SESSION_DAYS}d` });
     res.cookie(COOKIE, token, {
       httpOnly: true,
       sameSite: 'lax',
@@ -126,9 +152,9 @@ function createApp(providedDb) {
 
   async function auth(req, res, next) {
     try {
-      const { sub } = jwt.verify(req.cookies[COOKIE] || '', secret);
+      const { sub, v = 0 } = jwt.verify(req.cookies[COOKIE] || '', secret);
       const user = await q.userById(sub);
-      if (!user) throw new Error('no user');
+      if (!user || user.token_version !== v) throw new Error('no user / session revoked');
       req.user = user;
       next();
     } catch {
@@ -169,7 +195,7 @@ function createApp(providedDb) {
       return res.status(409).json({ error: 'An account with that email already exists' });
     }
     startSession(res, id);
-    res.status(201).json({ user: await q.userById(id) });
+    res.status(201).json({ user: publicUser(await q.userById(id)) });
   });
 
   app.post('/api/login', async (req, res) => {
@@ -182,8 +208,8 @@ function createApp(providedDb) {
       return res.status(401).json({ error: 'Incorrect email or password' });
     }
     await q.log(req, user.id, 'signed_in');
-    startSession(res, user.id);
-    res.json({ user: await q.userById(user.id) });
+    startSession(res, user.id, user.token_version);
+    res.json({ user: publicUser(user) });
   });
 
   app.post('/api/logout', async (req, res) => {
@@ -195,7 +221,113 @@ function createApp(providedDb) {
     res.json({ ok: true });
   });
 
-  app.get('/api/me', auth, (req, res) => res.json({ user: req.user }));
+  app.get('/api/me', auth, (req, res) => res.json({ user: publicUser(req.user) }));
+
+  // ---- Profile ----
+  async function checkPassword(userId, password) {
+    const hash = await q.passwordHash(userId);
+    return !!hash && bcrypt.compare(String(password || ''), hash);
+  }
+
+  app.patch('/api/profile', auth, async (req, res) => {
+    const name = String(req.body?.name ?? '').trim().replace(/\s+/g, ' ');
+    if (name.length > MAX_NAME) return res.status(400).json({ error: `Name must be ${MAX_NAME} characters or less` });
+    const before = req.user.name || '';
+    if (name !== before) {
+      await inTx(async (t) => {
+        await t.setName(req.user.id, name || null);
+        await t.log(req, req.user.id, 'name_changed', { details: { from: before, to: name } });
+      });
+    }
+    res.json({ user: publicUser(await q.userById(req.user.id)) });
+  });
+
+  app.put('/api/profile/photo', auth, async (req, res) => {
+    const photo = String(req.body?.photo || '');
+    if (!AVATAR_RE.test(photo)) return res.status(400).json({ error: 'Please choose a JPEG, PNG or WebP image' });
+    if (photo.length > MAX_AVATAR_CHARS) return res.status(400).json({ error: 'That image is too large' });
+    await inTx(async (t) => {
+      await t.setAvatar(req.user.id, photo);
+      await t.log(req, req.user.id, 'photo_updated');
+    });
+    res.json({ user: publicUser(await q.userById(req.user.id)) });
+  });
+
+  app.delete('/api/profile/photo', auth, async (req, res) => {
+    if (req.user.avatar) {
+      await inTx(async (t) => {
+        await t.setAvatar(req.user.id, null);
+        await t.log(req, req.user.id, 'photo_removed');
+      });
+    }
+    res.json({ user: publicUser(await q.userById(req.user.id)) });
+  });
+
+  app.post('/api/profile/email', auth, async (req, res) => {
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!email) return res.status(400).json({ error: 'Enter a new email' });
+    if (!(await checkPassword(req.user.id, req.body?.current_password))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    if (email === req.user.email) return res.status(400).json({ error: 'That is already your email' });
+    if (await q.userByEmail(email)) return res.status(409).json({ error: 'An account with that email already exists' });
+    try {
+      await inTx(async (t) => {
+        await t.setEmail(req.user.id, email);
+        await t.log(req, req.user.id, 'email_changed', { details: { from: req.user.email, to: email } });
+      });
+    } catch {
+      return res.status(409).json({ error: 'An account with that email already exists' });
+    }
+    res.json({ user: publicUser(await q.userById(req.user.id)) });
+  });
+
+  app.post('/api/profile/password', auth, async (req, res) => {
+    const next = String(req.body?.new_password || '');
+    if (!next) return res.status(400).json({ error: 'Enter a new password' });
+    if (!(await checkPassword(req.user.id, req.body?.current_password))) {
+      return res.status(401).json({ error: 'Current password is incorrect' });
+    }
+    const hash = await bcrypt.hash(next, 10);
+    const { token_version } = await inTx(async (t) => {
+      const r = await t.setPassword(req.user.id, hash);
+      await t.log(req, req.user.id, 'password_changed');
+      return r;
+    });
+    startSession(res, req.user.id, token_version); // keep this device signed in
+    res.json({ ok: true });
+  });
+
+  // Deletes every time entry. The activity log is kept (it's the paper trail),
+  // and gets a record of the wipe including a copy of everything removed.
+  app.post('/api/profile/delete-data', auth, async (req, res) => {
+    if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
+    const count = await inTx(async (t) => {
+      const entries = await t.allEntries(req.user.id);
+      const total = entries.reduce((sum, e) => sum + hours(e.clock_in, e.clock_out || new Date().toISOString()), 0);
+      await t.deleteAllEntries(req.user.id);
+      await t.log(req, req.user.id, 'all_data_deleted', {
+        details: { entries: entries.length, total_hours: Math.round(total * 100) / 100, records: entries },
+      });
+      return entries.length;
+    });
+    res.json({ ok: true, deleted: count });
+  });
+
+  // Permanently deletes the account and everything in it (entries + log).
+  app.post('/api/profile/delete-account', auth, async (req, res) => {
+    if (req.body?.confirm !== 'DELETE') return res.status(400).json({ error: 'Type DELETE to confirm' });
+    if (!(await checkPassword(req.user.id, req.body?.password))) {
+      return res.status(401).json({ error: 'Password is incorrect' });
+    }
+    await inTx(async (t) => {
+      await t.deleteActivity(req.user.id);
+      await t.deleteAllEntries(req.user.id);
+      await t.deleteUser(req.user.id);
+    });
+    res.clearCookie(COOKIE);
+    res.json({ ok: true });
+  });
 
   // ---- Clock ----
   app.get('/api/status', auth, async (req, res) => {
@@ -297,10 +429,11 @@ function createApp(providedDb) {
       const str = v == null ? '' : String(v);
       return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
     };
-    const lines = [['Event #', 'Time (UTC)', `Time (${tz})`, 'Action', 'Entry #', 'Clock In (UTC)', 'Clock Out (UTC)', 'Hours', 'Details', 'IP', 'Device']];
+    const lines = [['Event #', 'Time (UTC)', `Time (${tz})`, 'Action', 'Entry #', 'Entry Type', 'Clock In (UTC)', 'Clock Out (UTC)', 'Hours', 'Details', 'IP', 'Device']];
+    const typeLabel = { clock: 'Live clock', manual: 'Manual' };
     for (const e of rows) {
-      const { clock_in, clock_out, hours: h, ...rest } = e.details;
-      lines.push([e.id, e.at, local.format(new Date(e.at)), e.action, e.entry_id, clock_in, clock_out, h,
+      const { source, clock_in, clock_out, hours: h, ...rest } = e.details;
+      lines.push([e.id, e.at, local.format(new Date(e.at)), e.action, e.entry_id, typeLabel[source] || '', clock_in, clock_out, h,
         Object.keys(rest).length ? JSON.stringify(rest) : '', e.ip, e.user_agent]);
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');

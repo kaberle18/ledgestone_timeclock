@@ -10,6 +10,11 @@ const crypto = require('node:crypto');
 
 // Timestamps are stored as ISO 8601 UTC text in both backends. Postgres uses
 // COLLATE "C" so text comparison is plain byte order (= chronological order).
+// Entries logged by hand before the source column existed are identified
+// from the activity log. Idempotent.
+const BACKFILL_SOURCE = `UPDATE entries SET source = 'manual'
+  WHERE source = 'clock' AND id IN (SELECT entry_id FROM activity WHERE action = 'entry_added')`;
+
 const PG_SCHEMA = `
   CREATE TABLE IF NOT EXISTS users (
     id SERIAL PRIMARY KEY,
@@ -38,7 +43,23 @@ const PG_SCHEMA = `
     user_agent TEXT
   );
   CREATE INDEX IF NOT EXISTS activity_user_id ON activity(user_id, id);
+  -- Profile fields (added after the first release)
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS name TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT;
+  ALTER TABLE users ADD COLUMN IF NOT EXISTS token_version INTEGER NOT NULL DEFAULT 0;
+  -- How an entry was created: 'clock' (live clock in/out) or 'manual'
+  ALTER TABLE entries ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'clock';
+  ${BACKFILL_SOURCE};
 `;
+
+// Columns added to existing tables after the first release. SQLite has no
+// ADD COLUMN IF NOT EXISTS, so these are checked one by one.
+const SQLITE_ADDED_COLUMNS = [
+  ['users', 'name', 'TEXT'],
+  ['users', 'avatar', 'TEXT'],
+  ['users', 'token_version', 'INTEGER NOT NULL DEFAULT 0'],
+  ['entries', 'source', "TEXT NOT NULL DEFAULT 'clock'"],
+];
 
 const SQLITE_SCHEMA = `
   PRAGMA foreign_keys = ON;
@@ -136,6 +157,11 @@ function openSqlite(file) {
     },
     async migrate() {
       db.exec(SQLITE_SCHEMA);
+      for (const [table, column, type] of SQLITE_ADDED_COLUMNS) {
+        const cols = db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name);
+        if (!cols.includes(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
+      }
+      db.exec(BACKFILL_SOURCE);
     },
     end: async () => db.close(),
   };

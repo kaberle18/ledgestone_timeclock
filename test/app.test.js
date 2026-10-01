@@ -13,16 +13,18 @@ async function startServer() {
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}`;
   let cookie = '';
-  const call = async (path, { method = 'GET', body } = {}) => {
+  const call = async (path, { method = 'GET', body, cookie: useCookie } = {}) => {
+    const c = useCookie ?? cookie;
     const res = await fetch(base + path, {
       method,
-      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(cookie ? { Cookie: cookie } : {}) },
+      headers: { ...(body ? { 'Content-Type': 'application/json' } : {}), ...(c ? { Cookie: c } : {}) },
       body: body ? JSON.stringify(body) : undefined,
     });
     const set = res.headers.get('set-cookie');
     if (set) cookie = set.split(';')[0];
     return res;
   };
+  call.cookie = () => cookie;
   return { db, server, call };
 }
 
@@ -158,9 +160,11 @@ test('activity log records every action, including deleted records', async (t) =
   const deleted = events.find((e) => e.action === 'entry_deleted');
   assert.equal(deleted.entry_id, entry.id);
   assert.deepEqual(deleted.details, {
-    clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T21:30:00.000Z', hours: 8.5, was_active: false,
+    source: 'manual', clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T21:30:00.000Z', hours: 8.5, was_active: false,
   });
   assert.equal(events.find((e) => e.action === 'pdf_exported').details.entries, 0);
+  assert.equal(events.find((e) => e.action === 'clocked_out').details.source, 'clock');
+  assert.equal(events.find((e) => e.action === 'entry_added').details.source, 'manual');
   assert.ok(events[0].ip);
 
   // Paging and filtering
@@ -177,11 +181,87 @@ test('activity log records every action, including deleted records', async (t) =
   const lines = csv.trim().split('\r\n');
   assert.equal(lines.length, 10);
   assert.match(lines[0], /^Event #,Time \(UTC\),Time \(America\/Chicago\),Action/);
-  assert.match(csv, /entry_deleted,\d+,2026-09-10T13:00:00.000Z,2026-09-10T21:30:00.000Z,8.5/);
+  assert.match(csv, /entry_deleted,\d+,Manual,2026-09-10T13:00:00.000Z,2026-09-10T21:30:00.000Z,8.5/);
+  assert.match(csv, /clocked_out,\d+,Live clock,/);
 
   // Users only see their own log, and there is no way to change it
   await call('/api/logout', { method: 'POST' });
   await call('/api/register', { method: 'POST', body: { email: 'other2@x.co', password: 'pw' } });
   assert.deepEqual((await (await call('/api/activity')).json()).events.map((e) => e.action), ['account_created']);
   assert.equal((await call('/api/activity/1', { method: 'DELETE' })).status, 404);
+});
+
+test('profile: name, photo, email, password, delete data, delete account', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'p@x.co', password: 'pw' } });
+  const json = async (res) => ({ status: res.status, ...(await res.json()) });
+
+  // Name
+  let r = await json(await call('/api/profile', { method: 'PATCH', body: { name: '  Kamden   Aberle ' } }));
+  assert.equal(r.user.name, 'Kamden Aberle');
+  assert.equal((await call('/api/profile', { method: 'PATCH', body: { name: 'x'.repeat(81) } })).status, 400);
+
+  // Photo
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+  r = await json(await call('/api/profile/photo', { method: 'PUT', body: { photo: png } }));
+  assert.equal(r.user.avatar, png);
+  assert.equal((await call('/api/profile/photo', { method: 'PUT', body: { photo: 'data:text/html;base64,PGI+' } })).status, 400);
+  assert.equal((await call('/api/profile/photo', { method: 'PUT', body: { photo: 'data:image/png;base64,' + 'A'.repeat(400_001) } })).status, 400);
+  assert.equal((await json(await call('/api/me'))).user.avatar, png);
+  r = await json(await call('/api/profile/photo', { method: 'DELETE' }));
+  assert.equal(r.user.avatar, null);
+
+  // Email
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/register', { method: 'POST', body: { email: 'taken@x.co', password: 'pw' } });
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/login', { method: 'POST', body: { email: 'p@x.co', password: 'pw' } });
+  assert.equal((await call('/api/profile/email', { method: 'POST', body: { email: 'new@x.co', current_password: 'bad' } })).status, 401);
+  assert.equal((await call('/api/profile/email', { method: 'POST', body: { email: 'taken@x.co', current_password: 'pw' } })).status, 409);
+  r = await json(await call('/api/profile/email', { method: 'POST', body: { email: 'New@X.co', current_password: 'pw' } }));
+  assert.equal(r.user.email, 'new@x.co');
+
+  // Password: wrong current rejected; success keeps this session, revokes old cookies
+  const oldCookie = call.cookie();
+  assert.equal((await call('/api/profile/password', { method: 'POST', body: { current_password: 'bad', new_password: 'pw2' } })).status, 401);
+  assert.equal((await call('/api/profile/password', { method: 'POST', body: { current_password: 'pw', new_password: 'pw2' } })).status, 200);
+  assert.equal((await call('/api/me')).status, 200, 'current device stays signed in');
+  assert.equal((await call('/api/me', { cookie: oldCookie })).status, 401, 'other sessions signed out');
+  await call('/api/logout', { method: 'POST' });
+  assert.equal((await call('/api/login', { method: 'POST', body: { email: 'new@x.co', password: 'pw' } })).status, 401);
+  assert.equal((await call('/api/login', { method: 'POST', body: { email: 'new@x.co', password: 'pw2' } })).status, 200);
+
+  // Delete all data: entries gone, log kept with a copy
+  await call('/api/clock-in', { method: 'POST' });
+  await call('/api/clock-out', { method: 'POST' });
+  await call('/api/entries', { method: 'POST', body: { clock_in: '2026-09-10T13:00:00.000Z', clock_out: '2026-09-10T17:00:00.000Z' } });
+  assert.equal((await call('/api/profile/delete-data', { method: 'POST', body: { confirm: 'yes' } })).status, 400);
+  r = await json(await call('/api/profile/delete-data', { method: 'POST', body: { confirm: 'DELETE' } }));
+  assert.equal(r.deleted, 2);
+  const all = 'from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z';
+  assert.equal((await json(await call(`/api/entries?${all}`))).entries.length, 0);
+  const { events } = await json(await call('/api/activity'));
+  const wipe = events[0];
+  assert.equal(wipe.action, 'all_data_deleted');
+  assert.equal(wipe.details.entries, 2);
+  assert.deepEqual(wipe.details.records.map((e) => e.source).sort(), ['clock', 'manual']);
+  for (const a of ['name_changed', 'photo_updated', 'photo_removed', 'email_changed', 'password_changed']) {
+    assert.ok(events.some((e) => e.action === a), a);
+  }
+  assert.deepEqual(events.find((e) => e.action === 'email_changed').details, { from: 'p@x.co', to: 'new@x.co' });
+
+  // Delete account
+  await call('/api/clock-in', { method: 'POST' });
+  assert.equal((await call('/api/profile/delete-account', { method: 'POST', body: { confirm: 'DELETE', password: 'bad' } })).status, 401);
+  assert.equal((await call('/api/profile/delete-account', { method: 'POST', body: { confirm: 'no', password: 'pw2' } })).status, 400);
+  assert.equal((await call('/api/profile/delete-account', { method: 'POST', body: { confirm: 'DELETE', password: 'pw2' } })).status, 200);
+  assert.equal((await call('/api/me')).status, 401);
+  assert.equal((await call('/api/login', { method: 'POST', body: { email: 'new@x.co', password: 'pw2' } })).status, 401);
+  const [{ n }] = await db.query("SELECT COUNT(*) AS n FROM activity a JOIN users u ON u.id = a.user_id WHERE u.email = 'new@x.co'");
+  assert.equal(Number(n), 0);
+  const left = await db.query('SELECT COUNT(*) AS n FROM entries WHERE user_id NOT IN (SELECT id FROM users)');
+  assert.equal(Number(left[0].n), 0, 'no orphaned entries');
+  // the other account is untouched
+  assert.equal((await call('/api/login', { method: 'POST', body: { email: 'taken@x.co', password: 'pw' } })).status, 200);
 });

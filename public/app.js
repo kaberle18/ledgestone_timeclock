@@ -92,23 +92,26 @@ function showAuth() {
 function showApp() {
   $('auth-view').hidden = true;
   $('app-view').hidden = false;
-  $('user-email').textContent = state.user.email;
+  renderUser();
   refreshStatus();
   route(); // loads the current tab's data
 }
 
 // ---------- top-bar sections (Dashboard / Data) ----------
 function route() {
-  const view = location.hash === '#data' ? 'data' : 'dashboard';
+  const view = { '#data': 'data', '#profile': 'profile' }[location.hash] || 'dashboard';
   $('dashboard-view').hidden = view !== 'dashboard';
   $('data-view').hidden = view !== 'data';
+  $('profile-view').hidden = view !== 'profile';
   document.querySelectorAll('.nav-tab').forEach((t) => {
     const on = t.dataset.view === view;
     t.classList.toggle('active', on);
     if (on) t.setAttribute('aria-current', 'page'); else t.removeAttribute('aria-current');
   });
   if (!state.user) return;
-  if (view === 'data') loadActivity(); else loadEntries();
+  if (view === 'data') loadActivity();
+  else if (view === 'profile') renderProfile();
+  else loadEntries();
 }
 window.addEventListener('hashchange', route);
 
@@ -133,8 +136,7 @@ function renderClock() {
 }
 
 function renderFilters() {
-  document.querySelectorAll('#period-tabs .tab').forEach((t) =>
-    t.classList.toggle('active', t.dataset.period === state.period));
+  $('period-select').value = state.period;
   const isMonth = state.period === 'month';
   $('pick-date').hidden = isMonth;
   $('pick-month').hidden = !isMonth;
@@ -167,6 +169,13 @@ function renderEntries() {
       const td = document.createElement('td');
       td.textContent = text;
       td.className = classes[i] + (i === 2 && !e.clock_out ? ' active' : '');
+      if (i === 0 && e.source === 'manual') {
+        const tag = document.createElement('span');
+        tag.className = 'tag-manual';
+        tag.textContent = 'Manual';
+        tag.title = 'Logged by hand (not a live clock in/out)';
+        td.appendChild(tag);
+      }
       tr.appendChild(td);
     });
     const actions = document.createElement('td');
@@ -242,6 +251,7 @@ $('logout').addEventListener('click', async () => {
   await api('/api/logout', { method: 'POST' });
   state.user = null;
   state.active = null;
+  history.replaceState(null, '', location.pathname); // next sign-in starts on the Dashboard
   showAuth();
 });
 
@@ -262,11 +272,9 @@ $('clock-btn').addEventListener('click', async () => {
   loadEntries();
 });
 
-document.querySelectorAll('#period-tabs .tab').forEach((tab) => {
-  tab.addEventListener('click', () => {
-    state.period = tab.dataset.period;
-    loadEntries();
-  });
+$('period-select').addEventListener('change', (e) => {
+  state.period = e.target.value;
+  loadEntries();
 });
 
 $('pick-date').addEventListener('change', (e) => {
@@ -385,17 +393,25 @@ $('entry-form').addEventListener('submit', async (ev) => {
 const fmtStamp = new Intl.DateTimeFormat(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 const fmtStampTime = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', second: '2-digit' });
 
+// [badge label, badge color, small line under the badge]
 const ACTION_INFO = {
   account_created: ['Account created', 'account'],
   signed_in: ['Signed in', 'account'],
   sign_in_failed: ['Failed sign-in', 'failed'],
   signed_out: ['Signed out', 'account'],
-  clocked_in: ['Clocked in', 'time'],
-  clocked_out: ['Clocked out', 'time'],
-  entry_added: ['Entry added', 'added'],
+  clocked_in: ['Clock in', 'time', 'Live clock'],
+  clocked_out: ['Clock out', 'time', 'Live clock'],
+  entry_added: ['Manual entry', 'manual', 'Logged by hand'],
   entry_deleted: ['Entry deleted', 'deleted'],
+  all_data_deleted: ['All data deleted', 'deleted'],
   pdf_exported: ['PDF exported', 'export'],
+  name_changed: ['Name changed', 'account'],
+  email_changed: ['Email changed', 'account'],
+  password_changed: ['Password changed', 'account'],
+  photo_updated: ['Photo updated', 'account'],
+  photo_removed: ['Photo removed', 'account'],
 };
+const sourceLabel = (src) => (src === 'manual' ? 'manual (logged by hand)' : 'live clock');
 
 function shiftText(d) {
   if (!d.clock_in) return '';
@@ -414,11 +430,19 @@ function describe(ev) {
     case 'signed_in': return 'Signed in';
     case 'sign_in_failed': return 'Someone tried to sign in with the wrong password';
     case 'signed_out': return 'Signed out';
-    case 'clocked_in': return `Clocked in at ${fmtTime.format(new Date(d.clock_in))} on ${fmtDay.format(new Date(d.clock_in))}`;
-    case 'clocked_out': return `Clocked out. Shift: ${shiftText(d)}`;
-    case 'entry_added': return `Added past entry: ${shiftText(d)}`;
+    case 'clocked_in': return `Clocked in live at ${fmtTime.format(new Date(d.clock_in))} on ${fmtDay.format(new Date(d.clock_in))}`;
+    case 'clocked_out': return `Clocked out live. Shift: ${shiftText(d)}`;
+    case 'entry_added': return `Logged a past shift by hand: ${shiftText(d)}`;
     case 'entry_deleted':
-      return `Deleted entry: ${shiftText(d)}${d.was_active ? ' (was the current shift)' : ''}`;
+      return `Deleted a ${d.source ? sourceLabel(d.source) + ' ' : ''}entry: ${shiftText(d)}${d.was_active ? ' (was the current shift)' : ''}`;
+    case 'all_data_deleted':
+      return `Deleted all time data: ${d.entries} ${d.entries === 1 ? 'entry' : 'entries'}, `
+        + `${Number(d.total_hours).toFixed(2)} hrs (a copy of every deleted entry is kept in the CSV download)`;
+    case 'name_changed': return d.to ? `Name changed from "${d.from || '(none)'}" to "${d.to}"` : `Name "${d.from}" removed`;
+    case 'email_changed': return `Email changed from ${d.from} to ${d.to}`;
+    case 'password_changed': return 'Password changed (other devices signed out)';
+    case 'photo_updated': return 'Profile photo updated';
+    case 'photo_removed': return 'Profile photo removed';
     case 'pdf_exported': {
       const first = fmtDate.format(new Date(d.from));
       const last = fmtDate.format(new Date(new Date(d.to).getTime() - 1));
@@ -481,6 +505,12 @@ function renderActivity() {
     badge.className = `badge ${kind}`;
     badge.textContent = label;
     action.appendChild(badge);
+    if (ACTION_INFO[ev.action]?.[2]) {
+      const sub = document.createElement('span');
+      sub.className = 'badge-sub';
+      sub.textContent = ACTION_INFO[ev.action][2];
+      action.appendChild(sub);
+    }
 
     const details = document.createElement('td');
     details.className = 'a-details';
@@ -513,6 +543,193 @@ $('activity-filter').addEventListener('change', () => loadActivity());
 $('activity-more').addEventListener('click', () => loadActivity({ more: true }));
 $('activity-csv').addEventListener('click', () => {
   window.location.href = `/api/activity.csv?${new URLSearchParams({ tz })}`;
+});
+
+// ---------- profile ----------
+function paintAvatar(el, user) {
+  if (user.avatar) {
+    el.style.backgroundImage = `url("${user.avatar}")`;
+    el.textContent = '';
+  } else {
+    el.style.backgroundImage = '';
+    el.textContent = (user.name || user.email || '?').trim().charAt(0);
+  }
+}
+
+// Top bar shows the photo (or initial) and name instead of the email.
+function renderUser() {
+  const u = state.user;
+  $('top-name').textContent = u.name || '';
+  paintAvatar($('top-avatar'), u);
+  document.querySelector('.user-chip').title = `${u.name ? u.name + ' · ' : ''}${u.email}`;
+}
+
+function setUser(user) {
+  state.user = user;
+  renderUser();
+  if (!$('profile-view').hidden) renderProfile();
+}
+
+function renderProfile() {
+  const u = state.user;
+  paintAvatar($('profile-avatar'), u);
+  $('photo-remove').hidden = !u.avatar;
+  $('name-form').name.value = u.name || '';
+  $('current-email').textContent = u.email;
+  $('member-since').textContent = `Member since ${fmtDate.format(new Date(u.created_at))}`;
+}
+
+function formMessage(form, text, ok) {
+  const msg = form.querySelector('.form-msg');
+  msg.textContent = text;
+  msg.className = `form-msg ${ok ? 'ok' : 'err'}`;
+  msg.hidden = !text;
+}
+
+// Wires a profile form: disables its button while saving and shows the result.
+function profileForm(id, handler) {
+  const form = $(id);
+  form.addEventListener('input', () => formMessage(form, '', true));
+  form.addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const btn = form.querySelector('button[type=submit]');
+    btn.disabled = true;
+    try {
+      formMessage(form, await handler(form), true);
+    } catch (err) {
+      if (err.status === 401 && /signed in/i.test(err.message)) return showAuth();
+      formMessage(form, err.message, false);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+profileForm('name-form', async (f) => {
+  const { user } = await api('/api/profile', { method: 'PATCH', body: { name: f.name.value } });
+  setUser(user);
+  return 'Name saved.';
+});
+
+profileForm('email-form', async (f) => {
+  const { user } = await api('/api/profile/email', {
+    method: 'POST', body: { email: f.email.value, current_password: f.current_password.value },
+  });
+  f.reset();
+  setUser(user);
+  return `Email changed to ${user.email}.`;
+});
+
+profileForm('password-form', async (f) => {
+  if (f.new_password.value !== f.confirm_password.value) throw new Error('New passwords do not match');
+  await api('/api/profile/password', {
+    method: 'POST', body: { current_password: f.current_password.value, new_password: f.new_password.value },
+  });
+  f.reset();
+  return 'Password changed. Other devices have been signed out.';
+});
+
+// Crops the chosen image to a centered square and shrinks it to 256px JPEG.
+function resizePhoto(file) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      const size = 256;
+      const side = Math.min(img.naturalWidth, img.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, size, size);
+      ctx.drawImage(img, (img.naturalWidth - side) / 2, (img.naturalHeight - side) / 2, side, side, 0, 0, size, size);
+      URL.revokeObjectURL(url);
+      resolve(canvas.toDataURL('image/jpeg', 0.85));
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error("That file isn't an image this browser can read")); };
+    img.src = url;
+  });
+}
+
+$('photo-upload').addEventListener('click', () => $('photo-input').click());
+$('photo-input').addEventListener('change', async (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+  try {
+    const photo = await resizePhoto(file);
+    const { user } = await api('/api/profile/photo', { method: 'PUT', body: { photo } });
+    setUser(user);
+  } catch (err) {
+    alert(err.message);
+  }
+});
+$('photo-remove').addEventListener('click', async () => {
+  try {
+    const { user } = await api('/api/profile/photo', { method: 'DELETE' });
+    setUser(user);
+  } catch (err) {
+    alert(err.message);
+  }
+});
+
+// ----- Delete all data / delete account (typed confirmation) -----
+let dangerAction = null;
+
+function openDanger(kind) {
+  const f = $('danger-form');
+  f.reset();
+  dangerAction = kind;
+  const account = kind === 'account';
+  $('danger-title').textContent = account ? 'Delete your account?' : 'Delete all data?';
+  $('danger-text').textContent = account
+    ? 'This permanently deletes your account, every clock-in/clock-out entry and your activity log, then signs you out. This cannot be undone.'
+    : 'Confirm you want to delete all data. Every clock-in/clock-out entry will be permanently deleted and your totals will go to zero. Your account and activity log are kept. This cannot be undone.';
+  $('danger-password-label').hidden = !account;
+  f.password.required = account;
+  $('danger-confirm').textContent = account ? 'Delete account' : 'Delete all data';
+  $('danger-confirm').disabled = true;
+  $('danger-error').hidden = true;
+  $('danger-dialog').showModal();
+  f.confirm.focus();
+}
+
+function dangerReady() {
+  const f = $('danger-form');
+  const typed = f.confirm.value.trim() === 'DELETE';
+  $('danger-confirm').disabled = !(typed && (dangerAction !== 'account' || f.password.value));
+}
+
+$('delete-data').addEventListener('click', () => openDanger('data'));
+$('delete-account').addEventListener('click', () => openDanger('account'));
+$('danger-cancel').addEventListener('click', () => $('danger-dialog').close());
+$('danger-form').addEventListener('input', () => { $('danger-error').hidden = true; dangerReady(); });
+$('danger-form').addEventListener('submit', async (ev) => {
+  ev.preventDefault();
+  dangerReady();
+  if ($('danger-confirm').disabled) return;
+  const f = $('danger-form');
+  $('danger-confirm').disabled = true;
+  try {
+    if (dangerAction === 'account') {
+      await api('/api/profile/delete-account', { method: 'POST', body: { confirm: 'DELETE', password: f.password.value } });
+      $('danger-dialog').close();
+      state.user = null;
+      state.active = null;
+      history.replaceState(null, '', location.pathname);
+      showAuth();
+      alert('Your account has been deleted.');
+    } else {
+      const { deleted } = await api('/api/profile/delete-data', { method: 'POST', body: { confirm: 'DELETE' } });
+      $('danger-dialog').close();
+      await refreshStatus();
+      alert(`Deleted ${deleted} ${deleted === 1 ? 'entry' : 'entries'}.`);
+    }
+  } catch (err) {
+    $('danger-error').textContent = err.message;
+    $('danger-error').hidden = false;
+    dangerReady();
+  }
 });
 
 // Live elapsed timer while clocked in.
