@@ -69,19 +69,21 @@
               <option value="month">Month</option>
             </select>
           </div>
-          <div class="range-nav">
-            <button type="button" class="nav-arrow" id="prev" aria-label="Previous period">‹</button>
-            <button type="button" class="range-button" id="range-button" aria-label="Choose date">
-              <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
-              <span id="range-label"></span>
+          <div class="range-group">
+            <div class="range-nav">
+              <button type="button" class="nav-arrow" id="prev" aria-label="Previous period">‹</button>
+              <button type="button" class="range-button" id="range-button" aria-label="Choose date">
+                <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
+                <span id="range-label"></span>
+              </button>
+              <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
+              <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
+            </div>
+            <button type="button" class="jump-today" id="today" hidden>
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+              <span id="today-text">Today</span>
             </button>
-            <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
-            <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
           </div>
-          <button type="button" class="jump-today" id="today" hidden>
-            <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" d="M9 14 4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
-            <span id="today-text">Today</span>
-          </button>
           <div class="toolbar-actions">
             <button type="button" class="btn ghost sm" id="add-entry" aria-label="Add entry">+ Add<span class="wide-only"> entry</span></button>
             <button type="button" class="btn primary sm icon-btn" id="export" title="Export this period as a one-page PDF">
