@@ -93,6 +93,11 @@ dialog .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 dialog p { margin: 0 0 12px; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 4px; }
 
+/* Delete confirmation */
+.delete-summary { background: var(--stripe); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
+.strong { font-weight: 600; }
+.warning { background: #fff4e5; color: #8a4b00; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
+
 /* ---------- Responsive ---------- */
 
 /* Half-screen / tablet */

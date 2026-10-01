@@ -278,11 +278,25 @@ $('export').addEventListener('click', () => {
   window.location.href = `/api/export.pdf?${qs}`;
 });
 
+// Shows the in-app delete confirmation; resolves true only if "Delete entry" is clicked.
+function confirmDelete(e) {
+  const inD = new Date(e.clock_in);
+  const end = e.clock_out || new Date().toISOString();
+  $('delete-date').textContent = fmtDay.format(inD) + ', ' + inD.getFullYear();
+  $('delete-times').textContent = `${fmtTime.format(inD)} → ${e.clock_out ? fmtTime.format(new Date(e.clock_out)) : 'In progress'}`;
+  $('delete-hours').textContent = `${hoursBetween(e.clock_in, end).toFixed(2)} hrs`;
+  $('delete-warning').hidden = !!e.clock_out;
+  const dialog = $('delete-dialog');
+  dialog.returnValue = '';
+  dialog.showModal();
+  $('delete-cancel').focus(); // safe default: Enter cancels
+  return new Promise((resolve) => {
+    dialog.addEventListener('close', () => resolve(dialog.returnValue === 'delete'), { once: true });
+  });
+}
+
 async function deleteEntry(e) {
-  const when = `${fmtDay.format(new Date(e.clock_in))}, ${fmtTime.format(new Date(e.clock_in))} – `
-    + (e.clock_out ? fmtTime.format(new Date(e.clock_out)) : 'in progress');
-  const extra = e.clock_out ? '' : '\n\nThis is your current shift — deleting it clocks you out without saving it.';
-  if (!confirm(`Delete this entry?\n\n${when}${extra}`)) return;
+  if (!(await confirmDelete(e))) return;
   try {
     await api(`/api/entries/${e.id}`, { method: 'DELETE' });
   } catch (err) {

@@ -113,6 +113,24 @@
     </form>
   </dialog>
 
+  <!-- Delete confirmation -->
+  <dialog id="delete-dialog" aria-labelledby="delete-title">
+    <form method="dialog">
+      <h2 id="delete-title">Delete this entry?</h2>
+      <div class="delete-summary">
+        <div id="delete-date" class="strong"></div>
+        <div id="delete-times" class="muted"></div>
+        <div id="delete-hours" class="muted"></div>
+      </div>
+      <p id="delete-warning" class="warning" hidden>This is your current shift. Deleting it clocks you out and the time is not saved.</p>
+      <p class="muted small">This can't be undone. The hours will be removed from your totals and PDF reports.</p>
+      <div class="dialog-actions">
+        <button type="submit" value="cancel" class="btn ghost" id="delete-cancel" autofocus>Cancel</button>
+        <button type="submit" value="delete" class="btn danger" id="delete-confirm">Delete entry</button>
+      </div>
+    </form>
+  </dialog>
+
   <script src="app.js"></script>
 </body>
 </html>

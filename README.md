@@ -6,7 +6,7 @@ A simple time clock web app.
 - **Clock in / clock out** – one button, with a live timer while you're on the clock.
 - **History & totals** – filter by **Day**, **Week**, **Weeks** (2–8 week span, e.g. a pay period), or **Month**, step back and forward with ‹ ›, and see the total hours for that range. Each row shows clock in, clock out, hours for that shift, and the running cumulative total.
 - **Add past entries** – **+ Add entry** logs a shift you forgot to clock (date, clock in, clock out). If clock out is earlier than clock in it's treated as an overnight shift. Entries can't be in the future or overlap an existing shift.
-- **Delete entries** – each row has a **Delete** button (with a confirmation). Deleting the shift you're currently on clocks you out without saving it.
+- **Delete entries** – each row has a **Delete** button that opens a confirmation pop-up showing the entry first (Cancel is the default). Deleting the shift you're currently on clocks you out without saving it.
 - **Works at any width** – full desktop, half-screen windows, tablets and phones (on phones each entry shows as a compact card).
 - **PDF export** – one page, US Letter portrait. The top shows the date range and total hours worked; below it is every transaction in the range (date, clock in, clock out, hours, cumulative hours). With a lot of entries the table shrinks its text to stay on one page; past ~90 rows it notes how many entries were left off (they're still counted in the total).
 
