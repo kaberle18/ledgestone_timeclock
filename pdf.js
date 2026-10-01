@@ -15,7 +15,7 @@ const FONTS = {
 };
 
 const PAGE = { width: 612, height: 792 }; // US Letter, portrait (points)
-const MARGIN = 50;
+const MARGIN = 56;
 
 function makeFormatters(tz) {
   const opts = (o) => new Intl.DateTimeFormat('en-US', { timeZone: tz, ...o });
@@ -55,13 +55,15 @@ function buildRows(entries, now = new Date()) {
 
 /**
  * Renders a single-page US Letter portrait PDF and pipes it to `stream`.
+ * `name` is shown at the top (falls back to `email`).
  * `from`/`to` are ISO instants (to is exclusive); `tz` is an IANA time zone.
  * `rangeText` optionally replaces the computed date-range label (used for "all time").
  */
-function renderReport(stream, { email, from, to, tz, entries, now = new Date(), rangeText }) {
+function renderReport(stream, { name, email, from, to, tz, entries, now = new Date(), rangeText }) {
   const f = makeFormatters(tz);
   const rows = buildRows(entries, now);
   const total = rows.length ? rows[rows.length - 1].cumulative : 0;
+  const title = (name && name.trim()) || email;
 
   // Margins are handled manually so PDFKit never adds a second page.
   const doc = new PDFDocument({
@@ -69,22 +71,34 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
     size: 'LETTER',
     layout: 'portrait',
     margins: { top: 0, bottom: 0, left: 0, right: 0 },
-    info: { Title: 'Time Clock Report', Author: email },
+    info: { Title: `${title} – Time report`, Author: title },
   });
   doc.registerFont('Regular', FONTS.regular);
   doc.registerFont('Bold', FONTS.bold);
   doc.registerFont('Italic', FONTS.italic);
   doc.pipe(stream);
 
-  const contentW = PAGE.width - MARGIN * 2;
-  const text = (s, x, y, o = {}) => doc.text(s, x, y, { lineBreak: false, ...o });
+  const INK = '#111111';
+  const MUTED = '#8a8f98';
+  const RULE = '#e4e6ea';
+  const M = MARGIN;
+  const W = PAGE.width - M * 2;
+  const text = (str, x, y, o = {}) => doc.text(str, x, y, { lineBreak: false, ...o });
+  const label = (str, x, y, o = {}) => {
+    doc.font('Regular').fontSize(7.5).fillColor(MUTED);
+    text(str.toUpperCase(), x, y, { characterSpacing: 0.8, ...o });
+  };
+  const rule = (y, color = RULE, width = 0.75) => {
+    doc.moveTo(M, y).lineTo(M + W, y).lineWidth(width).strokeColor(color).stroke();
+  };
 
-  // ---- Header ----
-  let y = MARGIN;
-  doc.font('Bold').fontSize(20).fillColor('#111');
-  text('Time Clock Report', MARGIN, y);
-  doc.font('Regular').fontSize(10).fillColor('#555');
-  text(email, MARGIN, y + 6, { width: contentW, align: 'right' });
+  // ---- Header: name, then period (left) and total (right) ----
+  let y = M;
+  doc.font('Bold').fontSize(22).fillColor(INK);
+  text(title, M, y, { width: W, ellipsis: true });
+  y += 30;
+  doc.font('Regular').fontSize(10).fillColor(MUTED);
+  text('Time report', M, y);
   y += 34;
 
   const lastInstant = new Date(new Date(to).getTime() - 1);
@@ -92,54 +106,47 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
   const endLabel = f.date.format(lastInstant);
   const rangeLabel = rangeText || (startLabel === endLabel ? startLabel : `${startLabel} – ${endLabel}`);
 
-  // Summary box: date range + total hours
-  const boxH = 64;
-  doc.roundedRect(MARGIN, y, contentW, boxH, 6).fillAndStroke('#f3f5f9', '#d5dbe5');
-  doc.fillColor('#555').font('Regular').fontSize(9);
-  text('DATE RANGE', MARGIN + 16, y + 14);
-  text('TOTAL HOURS WORKED', MARGIN + contentW / 2 + 16, y + 14);
-  doc.fillColor('#111').font('Bold').fontSize(16);
-  text(rangeLabel, MARGIN + 16, y + 30, { width: contentW / 2 - 24, ellipsis: true });
-  text(`${fmtHours(total)} hrs`, MARGIN + contentW / 2 + 16, y + 30);
-  const totalW = doc.widthOfString(`${fmtHours(total)} hrs`);
-  doc.font('Regular').fontSize(10).fillColor('#555');
-  text(`(${fmtHM(total)}) · ${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`,
-    MARGIN + contentW / 2 + 22 + totalW, y + 35);
-  y += boxH + 22;
+  label('Period', M, y);
+  label('Total hours', M, y, { width: W, align: 'right' });
+  y += 13;
+  doc.font('Regular').fontSize(12).fillColor(INK);
+  text(rangeLabel, M, y + 4, { width: W * 0.6, ellipsis: true });
+  doc.font('Bold').fontSize(18);
+  text(fmtHours(total), M, y, { width: W, align: 'right' });
+  y += 24;
+  doc.font('Regular').fontSize(8.5).fillColor(MUTED);
+  text(`${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`, M, y);
+  text(fmtHM(total), M, y, { width: W, align: 'right' });
+  y += 22;
+  rule(y, '#cfd3d9');
+  y += 22;
 
-  // ---- Transactions table ----
+  // ---- Table ----
   const cols = [
-    { key: 'n', label: '#', w: 0.06, align: 'left' },
-    { key: 'date', label: 'Date', w: 0.28, align: 'left' },
-    { key: 'in', label: 'Clock In', w: 0.17, align: 'left' },
-    { key: 'out', label: 'Clock Out', w: 0.17, align: 'left' },
+    { key: 'date', label: 'Date', w: 0.34, align: 'left' },
+    { key: 'in', label: 'Clock in', w: 0.18, align: 'left' },
+    { key: 'out', label: 'Clock out', w: 0.18, align: 'left' },
     { key: 'hours', label: 'Hours', w: 0.14, align: 'right' },
-    { key: 'cum', label: 'Cumulative', w: 0.18, align: 'right' },
+    { key: 'cum', label: 'Cumulative', w: 0.16, align: 'right' },
   ];
-  let cx = MARGIN;
-  for (const c of cols) { c.x = cx; c.px = c.w * contentW; cx += c.px; }
-  const pad = 6;
+  let cx = M;
+  for (const c of cols) { c.x = cx; c.px = c.w * W; cx += c.px; }
+  const cell = (c, str, y0, o = {}) => text(String(str), c.x, y0, { width: c.px, align: c.align, ellipsis: true, ...o });
 
-  const drawCells = (vals) => {
-    for (const c of cols) {
-      text(String(vals[c.key]), c.x + pad, y, { width: c.px - pad * 2, align: c.align, ellipsis: true });
-    }
-  };
+  for (const c of cols) { label(c.label, c.x, y, { width: c.px, align: c.align }); }
+  y += 14;
+  rule(y);
 
-  doc.font('Bold').fontSize(10).fillColor('#111');
-  text('Transactions', MARGIN, y);
-  y += 18;
-
-  // Pick a font size / row height so every row fits on the single page.
-  const footerH = 30;
-  const available = PAGE.height - MARGIN - footerH - y - 20; // minus header row
-  let fontSize = 10;
-  let rowH = 18;
+  // Pick a font size / row height so every row (plus the total line) fits on the page.
+  const footerY = PAGE.height - M + 4;
+  const available = footerY - 24 - y - 30; // keep room for the total line
+  let fontSize = 9.5;
+  let rowH = 20;
   while (rows.length * rowH > available && fontSize > 6) {
     fontSize -= 0.5;
-    rowH = fontSize * 1.75;
+    rowH = fontSize * 1.9;
   }
-  let maxRows = Math.floor(available / rowH);
+  const maxRows = Math.floor(available / rowH);
   let shown = rows;
   let hidden = 0;
   if (rows.length > maxRows) {
@@ -147,44 +154,46 @@ function renderReport(stream, { email, from, to, tz, entries, now = new Date(), 
     hidden = rows.length - shown.length;
   }
 
-  // Header row
-  doc.rect(MARGIN, y - 5, contentW, 20).fill('#1f2a44');
-  doc.fillColor('#fff').font('Bold').fontSize(9);
-  drawCells(Object.fromEntries(cols.map((c) => [c.key, c.label])));
-  y += 20;
-
-  doc.font('Regular').fontSize(fontSize);
   if (rows.length === 0) {
-    doc.fillColor('#777');
-    text('No clock-in/clock-out activity in this date range.', MARGIN + pad, y + 4);
+    doc.font('Regular').fontSize(10).fillColor(MUTED);
+    text('No time recorded in this period.', M, y + 14);
+    y += 36;
   }
-  shown.forEach((r, i) => {
-    if (i % 2 === 1) doc.rect(MARGIN, y - (rowH - fontSize) / 2, contentW, rowH).fill('#f6f7fa');
-    doc.fillColor('#111');
+  const textOffset = (rowH - fontSize) / 2;
+  for (const r of shown) {
     const inD = new Date(r.clock_in);
-    drawCells({
-      n: i + 1,
-      date: f.dayDate.format(inD),
-      in: f.time.format(inD),
-      out: r.active ? 'In progress' : f.time.format(new Date(r.clock_out)),
-      hours: fmtHours(r.hours),
-      cum: fmtHours(r.cumulative),
-    });
+    doc.font('Regular').fontSize(fontSize).fillColor(INK);
+    cell(cols[0], f.dayDate.format(inD), y + textOffset);
+    cell(cols[1], f.time.format(inD), y + textOffset);
+    if (r.active) doc.fillColor(MUTED);
+    cell(cols[2], r.active ? 'In progress' : f.time.format(new Date(r.clock_out)), y + textOffset);
+    doc.fillColor(INK);
+    cell(cols[3], fmtHours(r.hours), y + textOffset);
+    doc.fillColor(MUTED);
+    cell(cols[4], fmtHours(r.cumulative), y + textOffset);
     y += rowH;
-  });
+    rule(y, '#f0f1f3', 0.5);
+  }
   if (hidden > 0) {
-    doc.fillColor('#a33').font('Italic');
-    text(`+ ${hidden} more ${hidden === 1 ? 'entry' : 'entries'} not shown (included in total above).`,
-      MARGIN + pad, y);
+    doc.font('Italic').fontSize(8.5).fillColor(MUTED);
+    text(`+ ${hidden} more ${hidden === 1 ? 'entry' : 'entries'} not shown (included in the total)`, M, y + 6);
+    y += 20;
+  }
+
+  // Total line
+  if (rows.length) {
+    rule(y, '#cfd3d9');
+    y += 9;
+    doc.font('Bold').fontSize(Math.max(fontSize, 9)).fillColor(INK);
+    cell(cols[0], 'Total', y);
+    cell(cols[4], fmtHours(total), y);
   }
 
   // ---- Footer ----
-  doc.font('Regular').fontSize(8).fillColor('#888');
-  const generated = new Intl.DateTimeFormat('en-US', {
-    timeZone: tz, dateStyle: 'medium', timeStyle: 'short',
-  }).format(now);
-  text(`Generated ${generated} (${tz}). Hours shown in decimal hours; shifts are listed by clock-in date.`,
-    MARGIN, PAGE.height - MARGIN, { width: contentW, align: 'center' });
+  const generated = new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' }).format(now);
+  doc.font('Regular').fontSize(7.5).fillColor('#a3a8b0');
+  text(`Generated ${generated}`, M, footerY);
+  text(`Times in ${tz.replace(/_/g, ' ')} · decimal hours`, M, footerY, { width: W, align: 'right' });
 
   doc.end();
   return { total, count: rows.length };

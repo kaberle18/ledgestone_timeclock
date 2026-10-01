@@ -414,7 +414,7 @@ function createApp(providedDb) {
     }
     // Build the whole PDF first: if anything fails, the client gets a JSON error
     // instead of a half-written file, and no export is logged.
-    const pdf = await renderReportBuffer({ email: req.user.email, from: r.from, to: r.to, tz, entries, rangeText });
+    const pdf = await renderReportBuffer({ name: req.user.name, email: req.user.email, from: r.from, to: r.to, tz, entries, rangeText });
     await q.log(req, req.user.id, 'pdf_exported', {
       details: { from: r.from, to: r.to, tz, all, entries: entries.length, total_hours: Math.round(total * 100) / 100 },
     });
