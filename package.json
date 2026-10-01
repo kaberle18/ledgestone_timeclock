@@ -1,0 +1,23 @@
+{
+  "name": "time-clock",
+  "version": "1.0.0",
+  "description": "Simple time clock: accounts, clock in/out, filters, one-page PDF export",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "pdfkit": "^0.20.2",
+    "pg": "^8.23.1"
+  },
+  "private": true,
+  "engines": {
+    "node": "22.x"
+  }
+}

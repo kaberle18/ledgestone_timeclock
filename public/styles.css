@@ -1,0 +1,83 @@
+:root {
+  --bg: #f4f6fa;
+  --card: #fff;
+  --text: #172033;
+  --muted: #667085;
+  --border: #e2e6ee;
+  --primary: #2453d4;
+  --primary-hover: #1c43ad;
+  --danger: #c62f3b;
+  --danger-hover: #a3242f;
+  --in: #14804a;
+  --stripe: #f8f9fc;
+}
+* { box-sizing: border-box; }
+body { margin: 0; font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background: var(--bg); color: var(--text); }
+[hidden] { display: none !important; }
+.muted { color: var(--muted); }
+.small { font-size: 13px; }
+
+.card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+.btn { font: inherit; border: 1px solid transparent; border-radius: 8px; padding: 8px 14px; cursor: pointer; background: #eef1f6; color: var(--text); }
+.btn:disabled { opacity: .6; cursor: default; }
+.btn.primary { background: var(--primary); color: #fff; }
+.btn.primary:hover:not(:disabled) { background: var(--primary-hover); }
+.btn.danger { background: var(--danger); color: #fff; }
+.btn.danger:hover:not(:disabled) { background: var(--danger-hover); }
+.btn.ghost { background: transparent; border-color: var(--border); }
+.btn.ghost:hover { background: #eef1f6; }
+.btn.icon { padding: 6px 12px; font-size: 18px; line-height: 1; }
+.btn.wide { width: 100%; }
+.btn.big { font-size: 20px; font-weight: 600; padding: 18px 36px; border-radius: 12px; min-width: 180px; }
+
+input, select { font: inherit; padding: 7px 10px; border: 1px solid var(--border); border-radius: 8px; background: #fff; color: var(--text); }
+
+.tabs { display: inline-flex; background: #eef1f6; border-radius: 9px; padding: 3px; gap: 2px; }
+.tab { font: inherit; border: 0; background: transparent; padding: 6px 14px; border-radius: 7px; cursor: pointer; color: var(--muted); }
+.tab.active { background: #fff; color: var(--text); box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 600; }
+
+/* Auth */
+.auth { min-height: 100vh; display: grid; place-items: center; padding: 16px; }
+.auth-card { width: 100%; max-width: 380px; }
+.auth-card h1 { margin: 0 0 16px; text-align: center; }
+.auth-card .tabs { display: flex; margin-bottom: 16px; }
+.auth-card .tab { flex: 1; }
+form label { display: block; margin-bottom: 12px; font-size: 14px; color: var(--muted); }
+form input { display: block; width: 100%; margin-top: 4px; }
+.error { color: var(--danger); font-size: 14px; margin: 0 0 12px; }
+
+/* App */
+.topbar { display: flex; align-items: center; gap: 12px; padding: 12px 20px; background: var(--card); border-bottom: 1px solid var(--border); }
+.spacer { flex: 1; }
+.container { max-width: 960px; margin: 0 auto; padding: 20px 16px 48px; display: grid; gap: 16px; }
+.container > * { min-width: 0; }
+
+.clock-card { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.status { font-size: 22px; font-weight: 700; }
+.status.in { color: var(--in); }
+.status.out { color: var(--muted); }
+.elapsed { font-size: 32px; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+.filter-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pickers { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+
+.summary { display: flex; gap: 32px; align-items: flex-end; margin: 20px 0 12px; padding: 14px 16px; background: var(--stripe); border-radius: 10px; flex-wrap: wrap; }
+.summary .label { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.summary .value { font-size: 20px; font-weight: 700; }
+.summary-action { margin-left: auto; }
+
+.table-wrap { overflow-x: auto; }
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { text-align: left; padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+th { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+th.num, td.num { text-align: right; }
+tbody tr:nth-child(even) { background: var(--stripe); }
+td.active { color: var(--in); font-weight: 600; }
+.empty { text-align: center; padding: 24px 0; }
+
+@media (max-width: 600px) {
+  .clock-card { flex-direction: column; align-items: stretch; text-align: center; }
+  .btn.big { width: 100%; }
+  .summary-action { margin-left: 0; width: 100%; }
+  .summary-action .btn { width: 100%; }
+}

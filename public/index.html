@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Time Clock</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <!-- Sign in / create account -->
+  <main id="auth-view" class="auth" hidden>
+    <div class="card auth-card">
+      <h1>Time Clock</h1>
+      <div class="tabs" role="tablist">
+        <button type="button" class="tab active" data-mode="login">Sign in</button>
+        <button type="button" class="tab" data-mode="register">Create account</button>
+      </div>
+      <form id="auth-form">
+        <label>Email <input type="email" name="email" autocomplete="email" required></label>
+        <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
+        <p id="auth-error" class="error" hidden></p>
+        <button type="submit" class="btn primary wide" id="auth-submit">Sign in</button>
+      </form>
+    </div>
+  </main>
+
+  <!-- Main app -->
+  <div id="app-view" hidden>
+    <header class="topbar">
+      <strong>Time Clock</strong>
+      <span class="spacer"></span>
+      <span id="user-email" class="muted"></span>
+      <button type="button" class="btn ghost" id="logout">Sign out</button>
+    </header>
+
+    <main class="container">
+      <section class="card clock-card">
+        <div>
+          <div id="clock-status" class="status out">Clocked out</div>
+          <div id="clock-since" class="muted"></div>
+          <div id="clock-elapsed" class="elapsed"></div>
+        </div>
+        <button type="button" id="clock-btn" class="btn big primary">Clock In</button>
+      </section>
+
+      <section class="card">
+        <div class="filter-row">
+          <div class="tabs" id="period-tabs">
+            <button type="button" class="tab active" data-period="day">Day</button>
+            <button type="button" class="tab" data-period="week">Week</button>
+            <button type="button" class="tab" data-period="weeks">Weeks</button>
+            <button type="button" class="tab" data-period="month">Month</button>
+          </div>
+          <div class="pickers">
+            <button type="button" class="btn ghost icon" id="prev" aria-label="Previous">‹</button>
+            <input type="date" id="pick-date">
+            <input type="month" id="pick-month" hidden>
+            <select id="pick-weeks" hidden aria-label="Number of weeks">
+              <option value="2">2 weeks</option>
+              <option value="3">3 weeks</option>
+              <option value="4">4 weeks</option>
+              <option value="6">6 weeks</option>
+              <option value="8">8 weeks</option>
+            </select>
+            <button type="button" class="btn ghost icon" id="next" aria-label="Next">›</button>
+            <button type="button" class="btn ghost" id="today">Today</button>
+          </div>
+        </div>
+
+        <div class="summary">
+          <div>
+            <div class="label">Date range</div>
+            <div id="range-label" class="value"></div>
+          </div>
+          <div>
+            <div class="label">Total hours</div>
+            <div class="value"><span id="total-hours">0.00</span> <span id="total-hm" class="muted small"></span></div>
+          </div>
+          <div class="summary-action">
+            <button type="button" class="btn primary" id="export">Export PDF</button>
+          </div>
+        </div>
+
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr><th>Date</th><th>Clock In</th><th>Clock Out</th><th class="num">Hours</th><th class="num">Cumulative</th></tr>
+            </thead>
+            <tbody id="entries"></tbody>
+          </table>
+          <p id="empty" class="muted empty" hidden>No entries in this period.</p>
+        </div>
+      </section>
+    </main>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
