@@ -306,7 +306,13 @@ function renderEntries() {
     del.textContent = 'Delete';
     del.setAttribute('aria-label', `Delete entry from ${cells[0]}, ${cells[1]}`);
     del.addEventListener('click', () => deleteEntry(e));
-    actions.appendChild(del);
+    const edit = document.createElement('button');
+    edit.type = 'button';
+    edit.className = 'btn edit';
+    edit.textContent = 'Edit';
+    edit.setAttribute('aria-label', `Edit entry from ${cells[0]}, ${cells[1]}`);
+    edit.addEventListener('click', () => openEntryDialog(e));
+    actions.append(edit, del);
     tr.appendChild(actions);
     tbody.appendChild(tr);
   }
@@ -464,7 +470,12 @@ async function downloadFile(url, fallbackName) {
     throw Object.assign(new Error(data.error || `Export failed (HTTP ${res.status})`), { status: res.status });
   }
   const name = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') || '')?.[1] || fallbackName;
-  const blobUrl = URL.createObjectURL(await res.blob());
+  const blob = await res.blob();
+  // Opened from the home screen (installed app): downloads often don't work
+  // there, so hand the file to the phone's share sheet (Save to Files, Print...).
+  const file = new File([blob], name, { type: blob.type });
+  if (isInstalledApp() && navigator.canShare?.({ files: [file] })) return shareFile(file);
+  const blobUrl = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = blobUrl;
   a.download = name;
@@ -472,6 +483,25 @@ async function downloadFile(url, fallbackName) {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(blobUrl), 30_000);
+}
+
+function isInstalledApp() {
+  return window.matchMedia?.('(display-mode: standalone)').matches || navigator.standalone === true;
+}
+
+async function shareFile(file) {
+  try {
+    await navigator.share({ files: [file], title: file.name });
+  } catch (err) {
+    if (err.name === 'AbortError') return; // user closed the share sheet
+    // The share needs a fresh tap once the download finished: offer one.
+    $('file-ready-name').textContent = file.name;
+    $('file-ready-dialog').showModal();
+    $('file-ready-share').onclick = async () => {
+      $('file-ready-dialog').close();
+      await navigator.share({ files: [file], title: file.name }).catch(() => {});
+    };
+  }
 }
 
 $('export').addEventListener('click', async () => {
@@ -542,17 +572,41 @@ function updateEntryPreview() {
     : '';
 }
 
-$('add-entry').addEventListener('click', () => {
+// The same dialog adds a past shift or edits an existing one (`entry`).
+let editingEntry = null;
+const toTimeInput = (d) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+
+function openEntryDialog(entry = null) {
+  editingEntry = entry;
   const f = $('entry-form');
   f.reset();
-  // Default to the day being viewed (or today if that's in the future).
-  const day = state.anchor > new Date() ? new Date() : state.anchor;
-  f.date.value = toDateInput(day);
   f.date.max = toDateInput(new Date());
+  if (entry) {
+    const inD = new Date(entry.clock_in);
+    f.date.value = toDateInput(inD);
+    f.in.value = toTimeInput(inD);
+    if (entry.clock_out) f.out.value = toTimeInput(new Date(entry.clock_out));
+    $('entry-title').textContent = 'Edit entry';
+    $('entry-edit-note').textContent = entry.clock_out
+      ? 'Saving marks this entry as Manual. The original times stay on the Data tab.'
+      : "You're still clocked in on this shift. Enter the time you actually stopped. Saving clocks you out and marks the entry as Manual.";
+    $('entry-edit-note').hidden = false;
+    $('entry-save').textContent = 'Save changes';
+  } else {
+    // Default to the day being viewed (or today if that's in the future).
+    const day = state.anchor > new Date() ? new Date() : state.anchor;
+    f.date.value = toDateInput(day);
+    $('entry-title').textContent = 'Add past entry';
+    $('entry-edit-note').hidden = true;
+    $('entry-save').textContent = 'Save entry';
+  }
   $('entry-error').hidden = true;
   updateEntryPreview();
   $('entry-dialog').showModal();
-});
+  if (entry && !entry.clock_out) f.out.focus();
+}
+
+$('add-entry').addEventListener('click', () => openEntryDialog());
 $('entry-cancel').addEventListener('click', () => $('entry-dialog').close());
 $('entry-form').addEventListener('input', updateEntryPreview);
 $('entry-form').addEventListener('submit', async (ev) => {
@@ -562,12 +616,12 @@ $('entry-form').addEventListener('submit', async (ev) => {
   $('entry-error').hidden = true;
   $('entry-save').disabled = true;
   try {
-    await api('/api/entries', {
-      method: 'POST',
-      body: { clock_in: r.clockIn.toISOString(), clock_out: r.clockOut.toISOString() },
-    });
+    const body = { clock_in: r.clockIn.toISOString(), clock_out: r.clockOut.toISOString() };
+    if (editingEntry) await api(`/api/entries/${editingEntry.id}`, { method: 'PATCH', body });
+    else await api('/api/entries', { method: 'POST', body });
     $('entry-dialog').close();
-    state.anchor = r.clockIn; // jump to the period containing the new entry
+    if (state.period !== 'all' && state.period !== 'custom') state.anchor = r.clockIn; // show the period containing it
+    await refreshStatus(); // editing an open shift clocks you out
     loadEntries();
   } catch (err) {
     if (err.status === 401) { $('entry-dialog').close(); return showAuth(); }
@@ -591,6 +645,7 @@ const ACTION_INFO = {
   clocked_in: ['Clock in', 'time', 'Live clock'],
   clocked_out: ['Clock out', 'time', 'Live clock'],
   entry_added: ['Manual entry', 'manual', 'Logged by hand'],
+  entry_edited: ['Entry edited', 'manual', 'Changed by hand'],
   entry_deleted: ['Entry deleted', 'deleted'],
   all_data_deleted: ['All data deleted', 'deleted'],
   pdf_exported: ['PDF exported', 'export'],
@@ -622,6 +677,11 @@ function describe(ev) {
     case 'clocked_in': return `Clocked in live at ${fmtTime.format(new Date(d.clock_in))} on ${fmtDay.format(new Date(d.clock_in))}`;
     case 'clocked_out': return `Clocked out live. Shift: ${shiftText(d)}`;
     case 'entry_added': return `Logged a past shift by hand: ${shiftText(d)}`;
+    case 'entry_edited': {
+      const b = d.before || {};
+      return `Edited a ${sourceLabel(b.source)} entry. Was: ${shiftText(b)}${b.was_active ? ' (never clocked out)' : ''}. `
+        + `Now: ${shiftText(d)}, marked manual`;
+    }
     case 'entry_deleted':
       return `Deleted a ${d.source ? sourceLabel(d.source) + ' ' : ''}entry: ${shiftText(d)}${d.was_active ? ' (was the current shift)' : ''}`;
     case 'all_data_deleted':
@@ -982,6 +1042,7 @@ $('crop-zoom').addEventListener('input', (e) => setZoom(Number(e.target.value)))
 $('crop-zoom-out').addEventListener('click', () => setZoom(crop.zoom / 1.2));
 $('crop-zoom-in').addEventListener('click', () => setZoom(crop.zoom * 1.2));
 $('crop-cancel').addEventListener('click', closeCropper);
+$('file-ready-cancel').addEventListener('click', () => $('file-ready-dialog').close());
 $('crop-choose').addEventListener('click', () => $('photo-input').click());
 
 $('crop-save').addEventListener('click', async () => {

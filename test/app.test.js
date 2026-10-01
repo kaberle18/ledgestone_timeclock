@@ -301,3 +301,47 @@ test('dashboard period preference is saved to the account', async (t) => {
   const { user } = await (await call('/api/login', { method: 'POST', body: { email: 'pref@x.co', password: 'pw' } })).json();
   assert.deepEqual(user.prefs, { period: 'custom', custom_from: '2026-09-01', custom_to: '2026-09-30' });
 });
+
+test('edit an entry: fix a forgotten clock-out; becomes manual and is logged', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'edit@x.co', password: 'pw' } });
+  // A live shift that was never clocked out (simulate: started yesterday)
+  const start = new Date(Date.now() - 30 * 3_600_000).toISOString();
+  await db.query("INSERT INTO entries (user_id, clock_in, source) VALUES (1, $1, 'clock')", [start]);
+  const [{ id }] = await db.query('SELECT id FROM entries');
+  const other = await (await call('/api/entries', { method: 'POST', body: {
+    clock_in: new Date(Date.now() - 50 * 3_600_000).toISOString(), clock_out: new Date(Date.now() - 45 * 3_600_000).toISOString() } })).json();
+  const patch = (eid, body) => call(`/api/entries/${eid}`, { method: 'PATCH', body });
+  const out = new Date(Date.parse(start) + 8.5 * 3_600_000).toISOString();
+
+  assert.equal((await patch(id, { clock_in: start, clock_out: start })).status, 400);
+  assert.equal((await patch(id, { clock_in: start, clock_out: new Date(Date.now() + 3_600_000).toISOString() })).status, 400, 'future');
+  assert.equal((await patch(id, { clock_in: other.entry.clock_in, clock_out: out })).status, 409, 'overlaps the other shift');
+  assert.equal((await patch(99999, { clock_in: start, clock_out: out })).status, 404);
+
+  const res = await patch(id, { clock_in: start, clock_out: out });
+  assert.equal(res.status, 200);
+  const { entry } = await res.json();
+  assert.equal(entry.clock_out, out);
+  assert.equal(entry.source, 'manual');
+  assert.equal((await (await call('/api/status')).json()).active, null, 'no longer clocked in');
+  // Editing its own time range does not count as overlapping itself
+  assert.equal((await patch(id, { clock_in: start, clock_out: new Date(Date.parse(out) - 600_000).toISOString() })).status, 200);
+
+  const { events } = await (await call('/api/activity?action=entry_edited')).json();
+  assert.equal(events.length, 2);
+  const first = events[1];
+  assert.equal(first.entry_id, id);
+  assert.equal(first.details.before.source, 'clock');
+  assert.equal(first.details.before.was_active, true);
+  assert.equal(first.details.before.clock_out, null);
+  assert.equal(first.details.clock_out, out);
+  assert.equal(first.details.hours, 8.5);
+  assert.equal(first.details.source, 'manual');
+
+  // Someone else can't edit it
+  await call('/api/logout', { method: 'POST' });
+  await call('/api/register', { method: 'POST', body: { email: 'edit2@x.co', password: 'pw' } });
+  assert.equal((await patch(id, { clock_in: start, clock_out: out })).status, 404);
+});

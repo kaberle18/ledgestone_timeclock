@@ -10,6 +10,7 @@ const ACTIONS = [
   'account_created', 'signed_in', 'sign_in_failed', 'signed_out',
   'clocked_in', 'clocked_out', 'entry_added', 'entry_deleted', 'pdf_exported',
   'name_changed', 'email_changed', 'password_changed', 'photo_updated', 'photo_removed', 'all_data_deleted',
+  'entry_edited',
 ];
 
 const MAX_NAME = 80;
@@ -124,11 +125,17 @@ function createApp(providedDb) {
         "INSERT INTO entries (user_id, clock_in, clock_out, source) VALUES ($1, $2, $3, 'manual') RETURNING *",
         [userId, clockIn, clockOut]),
       deleteEntry: (userId, id) => one('DELETE FROM entries WHERE id = $1 AND user_id = $2 RETURNING *', [id, userId]),
-      // Any shift (an open one counts as running until now) that overlaps [from, to).
-      overlapping: (userId, from, to) => one(
+      // Any shift (an open one counts as running until now) that overlaps [from, to),
+      // optionally ignoring one entry (the one being edited).
+      overlapping: (userId, from, to, exceptId = 0) => one(
         `SELECT * FROM entries
-         WHERE user_id = $1 AND clock_in < $3 AND COALESCE(clock_out, $4) > $2
-         ORDER BY clock_in LIMIT 1`, [userId, from, to, new Date().toISOString()]),
+         WHERE user_id = $1 AND clock_in < $3 AND COALESCE(clock_out, $4) > $2 AND id <> $5
+         ORDER BY clock_in LIMIT 1`, [userId, from, to, new Date().toISOString(), exceptId]),
+      entryForUser: (userId, id) => one('SELECT * FROM entries WHERE id = $1 AND user_id = $2', [id, userId]),
+      // Editing a shift by hand marks it manual.
+      updateEntry: (id, clockIn, clockOut) => one(
+        "UPDATE entries SET clock_in = $1, clock_out = $2, source = 'manual' WHERE id = $3 RETURNING *",
+        [clockIn, clockOut, id]),
       range: (userId, from, to) => x.query(
         `SELECT id, clock_in, clock_out, source FROM entries
          WHERE user_id = $1 AND clock_in >= $2 AND clock_in < $3
@@ -390,15 +397,21 @@ function createApp(providedDb) {
     res.json({ entries: await q.range(req.user.id, r.from, r.to) });
   });
 
+  // Validates clock_in/clock_out from a request body; returns { from, to } or { error }.
+  function readShift(body) {
+    const clockIn = new Date(body?.clock_in);
+    const clockOut = new Date(body?.clock_out);
+    if (isNaN(clockIn) || isNaN(clockOut)) return { error: 'Clock in and clock out times are required' };
+    if (clockOut <= clockIn) return { error: 'Clock out must be after clock in' };
+    if (clockOut > new Date()) return { error: 'Manual entries must be in the past' };
+    return { from: clockIn.toISOString(), to: clockOut.toISOString() };
+  }
+
   // Manually log a past shift.
   app.post('/api/entries', auth, async (req, res) => {
-    const clockIn = new Date(req.body?.clock_in);
-    const clockOut = new Date(req.body?.clock_out);
-    if (isNaN(clockIn) || isNaN(clockOut)) return res.status(400).json({ error: 'Clock in and clock out times are required' });
-    if (clockOut <= clockIn) return res.status(400).json({ error: 'Clock out must be after clock in' });
-    if (clockOut > new Date()) return res.status(400).json({ error: 'Manual entries must be in the past' });
-    const from = clockIn.toISOString();
-    const to = clockOut.toISOString();
+    const shift = readShift(req.body);
+    if (shift.error) return res.status(400).json({ error: shift.error });
+    const { from, to } = shift;
     if (await q.overlapping(req.user.id, from, to)) {
       return res.status(409).json({ error: 'That time overlaps a shift you already have' });
     }
@@ -408,6 +421,31 @@ function createApp(providedDb) {
       return e;
     });
     res.status(201).json({ entry });
+  });
+
+  // Edit a shift's times (e.g. add a forgotten clock-out). The entry becomes manual
+  // and the log keeps both the old and new times.
+  app.patch('/api/entries/:id', auth, async (req, res) => {
+    const id = Number(req.params.id);
+    const before = Number.isInteger(id) ? await q.entryForUser(req.user.id, id) : null;
+    if (!before) return res.status(404).json({ error: 'Entry not found' });
+    const shift = readShift(req.body);
+    if (shift.error) return res.status(400).json({ error: shift.error });
+    if (await q.overlapping(req.user.id, shift.from, shift.to, id)) {
+      return res.status(409).json({ error: 'That time overlaps another shift you already have' });
+    }
+    const entry = await inTx(async (t) => {
+      const e = await t.updateEntry(id, shift.from, shift.to);
+      await t.log(req, req.user.id, 'entry_edited', {
+        entryId: id,
+        details: {
+          ...entryDetails(e),
+          before: { ...entryDetails(before), was_active: !before.clock_out },
+        },
+      });
+      return e;
+    });
+    res.json({ entry });
   });
 
   app.delete('/api/entries/:id', auth, async (req, res) => {

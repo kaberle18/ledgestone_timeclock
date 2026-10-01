@@ -4,12 +4,25 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Time Clock</title>
+  <meta name="description" content="Clock in and out, track your hours, and export timesheets.">
+  <!-- App icon: browser tab, home screen (iOS + Android) and installed-app manifest -->
+  <link rel="icon" href="/favicon.ico" sizes="any">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <meta name="theme-color" content="#ffffff">
+  <!-- Open full-screen like an app when launched from the home screen -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Time Clock">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
   <!-- Sign in / create account -->
   <main id="auth-view" class="auth" hidden>
     <div class="card auth-card">
+      <img src="/icon.svg" alt="" class="auth-logo" width="64" height="64">
       <h1>Time Clock</h1>
       <div class="tabs" role="tablist">
         <button type="button" class="tab active" data-mode="login">Sign in</button>
@@ -27,7 +40,7 @@
   <!-- Main app -->
   <div id="app-view" hidden>
     <header class="topbar">
-      <strong class="brand">Time Clock</strong>
+      <strong class="brand"><img src="/icon.svg" alt="" class="brand-logo" width="28" height="28">Time Clock</strong>
       <nav class="nav-tabs" aria-label="Sections">
         <a href="#dashboard" class="nav-tab active" data-view="dashboard">Dashboard</a>
         <a href="#data" class="nav-tab" data-view="data">Data</a>
@@ -143,6 +156,7 @@
                 <option value="clocked_in">Clock in (live)</option>
                 <option value="clocked_out">Clock out (live)</option>
                 <option value="entry_added">Manual entry (logged by hand)</option>
+                <option value="entry_edited">Entry edited</option>
                 <option value="entry_deleted">Entry deleted</option>
               </optgroup>
               <optgroup label="Reports">
@@ -247,6 +261,16 @@
     </main>
   </div>
 
+  <!-- Installed app: the file is ready, tap to share/save it -->
+  <dialog id="file-ready-dialog" aria-labelledby="file-ready-title">
+    <h2 id="file-ready-title">Your file is ready</h2>
+    <p class="muted small"><span id="file-ready-name"></span>. Tap Share to save it to Files, print it or send it.</p>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" id="file-ready-cancel">Close</button>
+      <button type="button" class="btn primary" id="file-ready-share">Share / Save</button>
+    </div>
+  </dialog>
+
   <!-- Profile photo cropper -->
   <dialog id="crop-dialog" class="crop-dialog" aria-labelledby="crop-title">
     <h2 id="crop-title">Crop your photo</h2>
@@ -293,7 +317,8 @@
   <!-- Manually log a past shift -->
   <dialog id="entry-dialog">
     <form id="entry-form" method="dialog">
-      <h2>Add past entry</h2>
+      <h2 id="entry-title">Add past entry</h2>
+      <p id="entry-edit-note" class="edit-note" hidden></p>
       <label>Date <input type="date" name="date" required></label>
       <div class="two">
         <label>Clock in <input type="time" name="in" required></label>
