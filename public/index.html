@@ -88,19 +88,16 @@
                 <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
                 <span id="range-label"></span>
               </button>
-              <input type="date" id="pick-date" class="picker-input" tabindex="-1" aria-hidden="true">
-              <!-- Custom range: start and end each open their own calendar -->
+              <!-- Custom range: tapping either date opens the in-app range calendar -->
               <div class="custom-range" id="custom-range" hidden>
-                <label class="range-part" id="custom-start-part" title="Start date">
+                <button type="button" class="range-part" id="custom-start-part" title="Change start date">
                   <svg class="cal-icon" viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M7 3v3M17 3v3M4 9h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></svg>
                   <span id="custom-start-label"></span>
-                  <input type="date" id="pick-start" class="picker-input" aria-label="Start date">
-                </label>
+                </button>
                 <span class="range-sep" aria-hidden="true">–</span>
-                <label class="range-part" id="custom-end-part" title="End date">
+                <button type="button" class="range-part" id="custom-end-part" title="Change end date">
                   <span id="custom-end-label"></span>
-                  <input type="date" id="pick-end" class="picker-input" aria-label="End date">
-                </label>
+                </button>
               </div>
               <button type="button" class="nav-arrow" id="next" aria-label="Next period">›</button>
             </div>
@@ -259,6 +256,25 @@
       </section>
     </main>
   </div>
+
+  <!-- In-app calendar: picks a date, or a start/end range for Custom.
+       (Used instead of the browser's date picker, which is unreliable on phones.) -->
+  <dialog id="cal-dialog" class="cal-dialog" aria-labelledby="cal-title">
+    <div class="cal-head">
+      <button type="button" class="cal-nav" id="cal-prev" aria-label="Previous month">‹</button>
+      <h2 id="cal-title"></h2>
+      <button type="button" class="cal-nav" id="cal-next" aria-label="Next month">›</button>
+    </div>
+    <p id="cal-hint" class="cal-hint"></p>
+    <div id="cal-grid" class="cal-grid"></div>
+    <p id="cal-summary" class="cal-summary"></p>
+    <div class="dialog-actions cal-actions">
+      <button type="button" class="btn ghost sm" id="cal-today">Today</button>
+      <span class="cal-spacer"></span>
+      <button type="button" class="btn ghost" id="cal-cancel">Cancel</button>
+      <button type="button" class="btn primary" id="cal-apply">Apply</button>
+    </div>
+  </dialog>
 
   <!-- Installed app: the file is ready, tap to share/save it -->
   <dialog id="file-ready-dialog" aria-labelledby="file-ready-title">

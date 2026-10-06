@@ -224,7 +224,6 @@ async function loadToday() {
 
 function renderFilters() {
   $('period-select').value = state.period === 'weeks' ? `weeks:${state.weeks}` : state.period;
-  $('pick-date').value = toDateInput(state.anchor);
   const range = currentRange();
   $('range-label').textContent = rangeLabel(range);
   const custom = state.period === 'custom';
@@ -239,8 +238,6 @@ function renderFilters() {
     const sameYear = range.from.getFullYear() === last.getFullYear();
     $('custom-start-label').textContent = (sameYear ? fmtMonthDay : fmtDate).format(range.from);
     $('custom-end-label').textContent = fmtDate.format(last);
-    $('pick-start').value = toDateInput(range.from);
-    $('pick-end').value = toDateInput(addDays(range.to, -1));
   }
   // "Back to today" only shows once you've moved away from the current period.
   const now = new Date();
@@ -417,45 +414,126 @@ $('period-select').addEventListener('change', (e) => {
   loadEntries();
 });
 
-$('pick-date').addEventListener('change', (e) => {
-  if (!e.target.value) return;
-  state.anchor = parseDateInput(e.target.value);
+// ---------- in-app calendar ----------
+// mode 'single': tap a day to jump there (in Month view any day picks its month).
+// mode 'range' (Custom): tap a start day, then an end day, then Apply.
+const cal = { mode: 'single', view: null, start: null, end: null, fresh: true };
+const fmtCalTitle = new Intl.DateTimeFormat(undefined, { month: 'long', year: 'numeric' });
+const fmtWeekday = new Intl.DateTimeFormat(undefined, { weekday: 'narrow' });
+const fmtCalLabel = new Intl.DateTimeFormat(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' });
+const sameDay = (a, b) => a && b && a.toDateString() === b.toDateString();
+const startOfDay = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+function openCalendar(mode) {
+  cal.mode = mode;
+  if (mode === 'range') {
+    cal.start = state.custom.from;
+    cal.end = addDays(state.custom.to, -1);
+    cal.fresh = true; // the next tap starts a new selection
+  }
+  const focus = mode === 'range' ? cal.start : state.anchor;
+  cal.view = new Date(focus.getFullYear(), focus.getMonth(), 1);
+  renderCalendar();
+  $('cal-dialog').showModal();
+}
+
+function renderCalendar() {
+  const range = cal.mode === 'range';
+  $('cal-title').textContent = fmtCalTitle.format(cal.view);
+  $('cal-hint').textContent = range
+    ? (cal.fresh || cal.end ? 'Tap a start day, then an end day.' : 'Now tap the end day.')
+    : state.period === 'month' ? 'Tap any day in the month you want.' : 'Tap a day.';
+  $('cal-apply').hidden = !range;
+  $('cal-apply').disabled = !(cal.start && cal.end);
+  $('cal-cancel').textContent = range ? 'Cancel' : 'Close';
+
+  // What's currently selected (highlighted)
+  let selFrom, selLast;
+  if (range) { selFrom = cal.start; selLast = cal.end || cal.start; }
+  else { const r = currentRange(); selFrom = r.from; selLast = addDays(r.to, -1); }
+
+  const grid = $('cal-grid');
+  grid.innerHTML = '';
+  for (let i = 0; i < 7; i++) {
+    const h = document.createElement('div');
+    h.className = 'cal-wd';
+    h.textContent = fmtWeekday.format(new Date(2026, 0, 4 + i)); // Jan 4 2026 is a Sunday
+    grid.appendChild(h);
+  }
+  for (let i = 0; i < cal.view.getDay(); i++) grid.appendChild(document.createElement('span'));
+  const days = new Date(cal.view.getFullYear(), cal.view.getMonth() + 1, 0).getDate();
+  const today = startOfDay(new Date());
+  for (let d = 1; d <= days; d++) {
+    const date = new Date(cal.view.getFullYear(), cal.view.getMonth(), d);
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'cal-day';
+    b.textContent = String(d);
+    b.setAttribute('aria-label', fmtCalLabel.format(date));
+    if (sameDay(date, today)) b.classList.add('today');
+    if (selFrom && date >= selFrom && date <= selLast) {
+      b.classList.add('in-range');
+      if (sameDay(date, selFrom)) b.classList.add('range-start');
+      if (sameDay(date, selLast)) b.classList.add('range-end');
+    }
+    b.addEventListener('click', () => pickCalendarDay(date));
+    grid.appendChild(b);
+  }
+
+  $('cal-summary').textContent = range
+    ? cal.end
+      ? `${fmtDate.format(cal.start)} – ${fmtDate.format(cal.end)} · ${Math.round((cal.end - cal.start) / 86_400_000) + 1} days`
+      : `Start: ${fmtDate.format(cal.start)}`
+    : '';
+}
+
+function pickCalendarDay(date) {
+  if (cal.mode === 'single') {
+    state.anchor = date;
+    $('cal-dialog').close();
+    loadEntries();
+    return;
+  }
+  if (cal.fresh || cal.end) {
+    cal.start = date;
+    cal.end = null;
+    cal.fresh = false;
+  } else if (date < cal.start) {
+    cal.end = cal.start;
+    cal.start = date;
+  } else {
+    cal.end = date;
+  }
+  renderCalendar();
+}
+
+$('cal-prev').addEventListener('click', () => {
+  cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth() - 1, 1);
+  renderCalendar();
+});
+$('cal-next').addEventListener('click', () => {
+  cal.view = new Date(cal.view.getFullYear(), cal.view.getMonth() + 1, 1);
+  renderCalendar();
+});
+$('cal-today').addEventListener('click', () => {
+  if (cal.mode === 'single') return pickCalendarDay(startOfDay(new Date()));
+  cal.view = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+  renderCalendar();
+});
+$('cal-cancel').addEventListener('click', () => $('cal-dialog').close());
+$('cal-apply').addEventListener('click', () => {
+  if (!(cal.start && cal.end)) return;
+  state.custom = { from: cal.start, to: addDays(cal.end, 1) };
+  $('cal-dialog').close();
+  savePrefs();
   loadEntries();
 });
-// The range label opens the browser's calendar (via a hidden date input).
-// In month mode any day picked selects that month.
-const pickDate = $('pick-date');
-const canShowPicker = typeof HTMLInputElement !== 'undefined' && 'showPicker' in HTMLInputElement.prototype;
-if (!canShowPicker) pickDate.classList.add('overlay'); // older browsers: tap the input directly
-function openPicker(input) {
-  try {
-    input.showPicker();
-  } catch {
-    input.focus();
-    input.click();
-  }
-}
-$('range-button').addEventListener('click', () => openPicker(pickDate));
+// Tapping outside the calendar closes it
+$('cal-dialog').addEventListener('click', (e) => { if (e.target === $('cal-dialog')) $('cal-dialog').close(); });
 
-// Custom range: each half opens its own calendar; picking keeps start <= end.
-for (const id of ['pick-start', 'pick-end']) {
-  const input = $(id);
-  if (!canShowPicker) input.classList.add('overlay');
-  input.parentElement.addEventListener('click', (e) => {
-    if (e.target !== input) { e.preventDefault(); openPicker(input); }
-  });
-  input.addEventListener('change', () => {
-    if (!input.value) return;
-    const picked = parseDateInput(input.value);
-    let { from, to } = state.custom;
-    let last = addDays(to, -1);
-    if (id === 'pick-start') from = picked; else last = picked;
-    if (last < from) [from, last] = [last, from];
-    state.custom = { from, to: addDays(last, 1) };
-    savePrefs();
-    loadEntries();
-  });
-}
+$('range-button').addEventListener('click', () => openCalendar('single'));
+$('custom-start-part').addEventListener('click', () => openCalendar('range'));
+$('custom-end-part').addEventListener('click', () => openCalendar('range'));
 $('prev').addEventListener('click', () => shiftAnchor(-1));
 $('next').addEventListener('click', () => shiftAnchor(1));
 $('today').addEventListener('click', () => { state.anchor = new Date(); loadEntries(); });

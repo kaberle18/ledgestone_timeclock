@@ -227,14 +227,10 @@ table.activity td.a-when { white-space: nowrap; }
 .range-nav.no-arrows .range-button:hover { background: transparent; }
 /* Custom range: [start] – [end] inside the same pill */
 .custom-range { display: inline-flex; align-items: stretch; border-left: 1px solid var(--border); border-right: 1px solid var(--border); }
-.range-part { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font-weight: 600; cursor: pointer; white-space: nowrap; color: var(--text); }
+.range-part { position: relative; display: inline-flex; align-items: center; gap: 7px; padding: 0 10px; font: inherit; font-weight: 600; cursor: pointer; white-space: nowrap; color: var(--text); background: transparent; border: 0; }
 .range-part:hover { background: #f4f6fa; }
-.range-part:focus-within { background: #eef3ff; }
+.range-part:focus-visible { background: #eef3ff; outline: none; }
 .range-sep { display: inline-flex; align-items: center; color: var(--muted); }
-.range-part .picker-input.overlay { left: 0; right: 0; }
-/* Hidden date input the label opens; becomes a tappable overlay where showPicker() is unavailable */
-.picker-input { position: absolute; left: 50%; bottom: 0; width: 1px; height: 1px; padding: 0; border: 0; opacity: 0; pointer-events: none; }
-.picker-input.overlay { left: 34px; right: 34px; top: 0; width: auto; height: 100%; pointer-events: auto; }
 
 /* Photo cropper */
 dialog.crop-dialog { width: min(380px, calc(100vw - 24px)); }
@@ -260,6 +256,29 @@ dialog.crop-dialog { width: min(380px, calc(100vw - 24px)); }
 #crop-choose { margin-left: auto; }
 .crop-preview { border-radius: 50%; border: 1px solid var(--border); background: #fff; }
 .crop-actions { align-items: center; }
+
+/* In-app calendar */
+dialog.cal-dialog { width: min(360px, calc(100vw - 24px)); padding: 16px 16px 14px; }
+.cal-head { display: flex; align-items: center; justify-content: space-between; }
+.cal-head h2 { margin: 0; font-size: 17px; }
+.cal-nav { font: inherit; font-size: 22px; line-height: 1; width: 40px; height: 40px; border: 0; border-radius: 10px; background: transparent; color: var(--text); cursor: pointer; }
+.cal-nav:hover { background: #eef1f6; }
+.cal-hint { margin: 4px 0 10px; font-size: 13px; color: var(--muted); text-align: center; }
+.cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 2px 0; }
+.cal-wd { text-align: center; font-size: 12px; font-weight: 600; color: var(--muted); padding: 4px 0; }
+.cal-day {
+  font: inherit; font-size: 15px; height: 42px; border: 0; background: transparent; color: var(--text);
+  cursor: pointer; border-radius: 0; touch-action: manipulation; font-variant-numeric: tabular-nums;
+}
+.cal-day:hover { background: #eef1f6; border-radius: 10px; }
+.cal-day.today { font-weight: 700; color: var(--primary); }
+.cal-day.in-range { background: #e8eefc; }
+.cal-day.range-start { border-top-left-radius: 10px; border-bottom-left-radius: 10px; }
+.cal-day.range-end { border-top-right-radius: 10px; border-bottom-right-radius: 10px; }
+.cal-day.range-start, .cal-day.range-end { background: var(--primary); color: #fff; }
+.cal-summary { min-height: 20px; margin: 10px 0 6px; text-align: center; font-weight: 600; font-size: 14px; }
+.cal-actions { align-items: center; }
+.cal-spacer { flex: 1; }
 
 /* Delete confirmation */
 .delete-summary { background: var(--stripe); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
