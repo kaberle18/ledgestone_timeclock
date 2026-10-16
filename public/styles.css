@@ -280,6 +280,27 @@ dialog.cal-dialog { width: min(360px, calc(100vw - 24px)); padding: 16px 16px 14
 .cal-actions { align-items: center; }
 .cal-spacer { flex: 1; }
 
+/* "6h 27m" with the decimal as a smaller, muted number */
+.dec { color: var(--muted); font-size: .8em; font-weight: 400; margin-left: 2px; }
+td .dec { font-size: 12px; }
+.today-stat #today-hours .dec { font-weight: 400; }
+/* Why the shift ended (End of day / Lunch / Break / Other) */
+.tag-reason { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 999px; font-size: 11px; font-weight: 600; vertical-align: 1px; background: #eef0f3; color: #4a5263; }
+.tag-reason.reason-lunch { background: #e7f6ee; color: #136c3c; }
+.tag-reason.reason-break { background: #e8f1fd; color: #1d4f9a; }
+
+/* Clock-out reason dialog */
+.reason-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+.reason-btn {
+  font: inherit; font-weight: 600; display: flex; flex-direction: column; align-items: center; gap: 6px;
+  padding: 16px 8px; border: 1px solid var(--border); border-radius: 12px; background: #fff; color: var(--text); cursor: pointer;
+}
+.reason-btn:hover { border-color: #c9d0dc; background: #f8f9fc; }
+.reason-btn:focus-visible { outline: 3px solid #b9cbf6; outline-offset: 1px; }
+.reason-emoji { font-size: 26px; line-height: 1; }
+.out-note-row { display: flex; gap: 8px; align-items: flex-end; margin-bottom: 8px; }
+.out-note-row label { flex: 1; margin: 0; }
+
 /* Delete confirmation */
 .delete-summary { background: var(--stripe); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; margin-bottom: 12px; }
 .strong { font-weight: 600; }
@@ -359,7 +380,6 @@ dialog.cal-dialog { width: min(360px, calc(100vw - 24px)); padding: 16px 16px 14
   .c-out { grid-area: out; color: var(--muted); }
   .c-out.active { color: var(--in); }
   .c-hours { grid-area: hours; font-weight: 600; }
-  .c-hours::after { content: " hrs"; font-weight: 400; color: var(--muted); }
   .c-cum { grid-area: cum; color: var(--muted); font-size: 13px; }
   .c-cum::before { content: "Total "; }
   td.actions { grid-area: del; text-align: right; }

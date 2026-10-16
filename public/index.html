@@ -59,7 +59,7 @@
           <div id="clock-sub" class="clock-sub"></div>
         </div>
         <div class="clock-side">
-          <div class="today-stat"><span class="today-label">Today</span> <span id="today-hours">0.00</span> hrs</div>
+          <div class="today-stat"><span class="today-label">Today</span> <span id="today-hours">0h 00m</span></div>
           <button type="button" id="clock-btn" class="clock-btn">
             <svg id="clock-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"></svg>
             <span id="clock-btn-text">Clock In</span>
@@ -118,7 +118,7 @@
         <div class="summary">
           <div>
             <div class="label">Total hours</div>
-            <div class="value"><span id="total-hours">0.00</span> <span id="total-hm" class="muted small"></span></div>
+            <div class="value"><span id="total-hours">0h 00m</span> <span id="total-hm" class="muted small"></span></div>
           </div>
           <div>
             <div class="label">Entries</div>
@@ -256,6 +256,24 @@
       </section>
     </main>
   </div>
+
+  <!-- Clock Out: why is the shift ending? -->
+  <dialog id="out-dialog" aria-labelledby="out-title">
+    <h2 id="out-title">Clocking out for…</h2>
+    <div class="reason-grid">
+      <button type="button" class="reason-btn" data-reason="end_of_day"><span class="reason-emoji" aria-hidden="true">🏁</span>End of day</button>
+      <button type="button" class="reason-btn" data-reason="lunch"><span class="reason-emoji" aria-hidden="true">🍽️</span>Lunch</button>
+      <button type="button" class="reason-btn" data-reason="break"><span class="reason-emoji" aria-hidden="true">☕</span>Break</button>
+      <button type="button" class="reason-btn" data-reason="other"><span class="reason-emoji" aria-hidden="true">✏️</span>Other</button>
+    </div>
+    <div id="out-note-row" class="out-note-row" hidden>
+      <label>What for? <input type="text" id="out-note" maxlength="200" placeholder="e.g. Doctor's appointment"></label>
+      <button type="button" class="btn danger" id="out-note-confirm">Clock out</button>
+    </div>
+    <div class="dialog-actions">
+      <button type="button" class="btn ghost" id="out-cancel">Cancel</button>
+    </div>
+  </dialog>
 
   <!-- In-app calendar: picks a date, or a start/end range for Custom.
        (Used instead of the browser's date picker, which is unreliable on phones.) -->

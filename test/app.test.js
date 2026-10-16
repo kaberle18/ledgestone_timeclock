@@ -107,7 +107,7 @@ test('manually add and delete entries', async (t) => {
   assert.equal((await add('2026-09-10T20:00:00.000Z', '2026-09-10T22:00:00.000Z')).status, 409, 'overlap');
   assert.equal((await add('2026-09-10T21:00:00.000Z', '2026-09-10T22:00:00.000Z')).status, 201, 'touching is fine');
   assert.equal((await add('2026-09-11T10:00:00.000Z', '2026-09-11T09:00:00.000Z')).status, 400, 'out before in');
-  assert.equal((await add('2999-01-01T10:00:00.000Z', '2999-01-01T11:00:00.000Z')).status, 400, 'future');
+  assert.equal((await add('2999-01-01T10:00:00.000Z', '2999-01-01T11:00:00.000Z')).status, 201, 'future times are allowed');
   assert.equal((await add('nope', '')).status, 400);
 
   // An open (current) shift blocks a manual entry that overlaps "now"-ish ranges
@@ -316,7 +316,6 @@ test('edit an entry: fix a forgotten clock-out; becomes manual and is logged', a
   const out = new Date(Date.parse(start) + 8.5 * 3_600_000).toISOString();
 
   assert.equal((await patch(id, { clock_in: start, clock_out: start })).status, 400);
-  assert.equal((await patch(id, { clock_in: start, clock_out: new Date(Date.now() + 3_600_000).toISOString() })).status, 400, 'future');
   assert.equal((await patch(id, { clock_in: other.entry.clock_in, clock_out: out })).status, 409, 'overlaps the other shift');
   assert.equal((await patch(99999, { clock_in: start, clock_out: out })).status, 404);
 
@@ -344,4 +343,42 @@ test('edit an entry: fix a forgotten clock-out; becomes manual and is logged', a
   await call('/api/logout', { method: 'POST' });
   await call('/api/register', { method: 'POST', body: { email: 'edit2@x.co', password: 'pw' } });
   assert.equal((await patch(id, { clock_in: start, clock_out: out })).status, 404);
+});
+
+test('clock-out time can be set in the future (paid until 4:30)', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'future@x.co', password: 'pw' } });
+  await call('/api/clock-in', { method: 'POST' });
+  const { entry } = await (await call('/api/clock-out', { method: 'POST', body: { reason: 'end_of_day' } })).json();
+  const later = new Date(Date.parse(entry.clock_out) + 30 * 60_000).toISOString();
+  const res = await call(`/api/entries/${entry.id}`, { method: 'PATCH', body: { clock_in: entry.clock_in, clock_out: later } });
+  assert.equal(res.status, 200);
+  const edited = (await res.json()).entry;
+  assert.equal(edited.clock_out, later);
+  assert.equal(edited.out_reason, 'end_of_day', 'editing keeps the clock-out reason');
+});
+
+test('clock-out reason is stored on the entry and in the log', async (t) => {
+  const { db, server, call } = await startServer();
+  t.after(() => { server.close(); db.end(); });
+  await call('/api/register', { method: 'POST', body: { email: 'why@x.co', password: 'pw' } });
+  await call('/api/clock-in', { method: 'POST' });
+  assert.equal((await call('/api/clock-out', { method: 'POST', body: { reason: 'nap' } })).status, 400);
+  const res = await call('/api/clock-out', { method: 'POST', body: { reason: 'lunch', note: '  back at 1  ' } });
+  assert.equal(res.status, 200);
+  const { entry } = await res.json();
+  assert.equal(entry.out_reason, 'lunch');
+  assert.equal(entry.out_note, 'back at 1');
+  const all = 'from=2000-01-01T00:00:00Z&to=2100-01-01T00:00:00Z';
+  const [listed] = (await (await call(`/api/entries?${all}`)).json()).entries;
+  assert.equal(listed.out_reason, 'lunch');
+  const { events } = await (await call('/api/activity?action=clocked_out')).json();
+  assert.equal(events[0].details.reason, 'lunch');
+  assert.equal(events[0].details.note, 'back at 1');
+  const csv = await (await call('/api/activity.csv?tz=UTC')).text();
+  assert.match(csv, /clocked_out,\d+,Live clock,[^,]+,[^,]+,[\d.]+,Lunch: back at 1,/);
+  // no reason (older app versions) still works
+  await call('/api/clock-in', { method: 'POST' });
+  assert.equal((await call('/api/clock-out', { method: 'POST' })).status, 200);
 });

@@ -29,6 +29,19 @@ function fmtHM(h) {
   const m = Math.round(h * 60);
   return `${Math.floor(m / 60)}h ${pad2(m % 60)}m`;
 }
+// Hours are shown as "6h 27m" first, with the decimal ("6.46") as the smaller number.
+const fmtDec = (h) => Number(h).toFixed(2);
+const fmtDur = (h) => `${fmtHM(h)} (${fmtDec(h)})`;
+// Element: "6h 27m" + a small muted "6.46"
+function durEl(h) {
+  const frag = document.createDocumentFragment();
+  frag.append(fmtHM(h));
+  const dec = document.createElement('span');
+  dec.className = 'dec';
+  dec.textContent = fmtDec(h);
+  frag.append(' ', dec);
+  return frag;
+}
 function fmtElapsed(ms) {
   const s = Math.floor(ms / 1000);
   return `${pad2(Math.floor(s / 3600))}:${pad2(Math.floor((s % 3600) / 60))}:${pad2(s % 60)}`;
@@ -193,7 +206,7 @@ function tickClock() {
     $('clock-big').textContent = fmtClockTime.format(now);
     $('clock-sub').textContent = fmtLongDate.format(now);
   }
-  $('today-hours').textContent = todayHours().toFixed(2);
+  $('today-hours').replaceChildren(durEl(todayHours()));
 }
 
 function renderClock() {
@@ -277,15 +290,22 @@ function renderEntries() {
       fmtDay.format(new Date(e.clock_in)),
       fmtTime.format(new Date(e.clock_in)),
       e.clock_out ? fmtTime.format(new Date(e.clock_out)) : 'In progress',
-      hours.toFixed(2),
-      cumulative.toFixed(2),
+      hours,
+      cumulative,
     ];
     // Column classes double as grid areas for the stacked mobile layout.
     const classes = ['c-date', 'c-in', 'c-out', 'c-hours num', 'c-cum num'];
     cells.forEach((text, i) => {
       const td = document.createElement('td');
-      td.textContent = text;
+      if (i >= 3) td.append(durEl(text)); else td.textContent = text;
       td.className = classes[i] + (i === 2 && !e.clock_out ? ' active' : '');
+      if (i === 2 && e.clock_out && e.out_reason) {
+        const tag = document.createElement('span');
+        tag.className = `tag-reason reason-${e.out_reason}`;
+        tag.textContent = reasonLabel(e.out_reason);
+        if (e.out_note) tag.title = e.out_note;
+        td.appendChild(tag);
+      }
       if (i === 0 && e.source === 'manual') {
         const tag = document.createElement('span');
         tag.className = 'tag-manual';
@@ -314,8 +334,8 @@ function renderEntries() {
     tbody.appendChild(tr);
   }
   $('empty').hidden = state.entries.length > 0;
-  $('total-hours').textContent = cumulative.toFixed(2);
-  $('total-hm').textContent = `(${fmtHM(cumulative)})`;
+  $('total-hours').textContent = fmtHM(cumulative);
+  $('total-hm').textContent = fmtDec(cumulative);
   $('entry-count').textContent = String(state.entries.length);
 }
 
@@ -381,11 +401,15 @@ $('logout').addEventListener('click', async () => {
   showAuth();
 });
 
-$('clock-btn').addEventListener('click', async () => {
+const REASON_LABELS = { end_of_day: 'End of day', lunch: 'Lunch', break: 'Break', other: 'Other' };
+const reasonLabel = (r) => REASON_LABELS[r] || r;
+
+// Clock In happens right away; Clock Out first asks why (end of day, lunch...).
+async function clockAction(path, body) {
   const btn = $('clock-btn');
   btn.disabled = true;
   try {
-    const res = await api(state.active ? '/api/clock-out' : '/api/clock-in', { method: 'POST' });
+    const res = await api(path, { method: 'POST', body });
     state.active = res.active;
   } catch (err) {
     if (err.status === 401) return showAuth();
@@ -396,7 +420,32 @@ $('clock-btn').addEventListener('click', async () => {
   }
   renderClock();
   loadEntries();
+}
+
+$('clock-btn').addEventListener('click', () => {
+  if (!state.active) return clockAction('/api/clock-in');
+  $('out-note-row').hidden = true;
+  $('out-note').value = '';
+  $('out-dialog').showModal();
 });
+document.querySelectorAll('#out-dialog [data-reason]').forEach((b) => {
+  b.addEventListener('click', () => {
+    const reason = b.dataset.reason;
+    if (reason === 'other' && $('out-note-row').hidden) {
+      // "Other": let them type a short note first
+      $('out-note-row').hidden = false;
+      $('out-note').focus();
+      return;
+    }
+    $('out-dialog').close();
+    clockAction('/api/clock-out', { reason, note: reason === 'other' ? $('out-note').value : '' });
+  });
+});
+$('out-note-confirm').addEventListener('click', () => {
+  $('out-dialog').close();
+  clockAction('/api/clock-out', { reason: 'other', note: $('out-note').value });
+});
+$('out-cancel').addEventListener('click', () => $('out-dialog').close());
 
 // Values are "day", "week", "month" or "weeks:<n>" (a multi-week span).
 $('period-select').addEventListener('change', (e) => {
@@ -604,7 +653,7 @@ function confirmDelete(e) {
   const end = e.clock_out || new Date().toISOString();
   $('delete-date').textContent = fmtDay.format(inD) + ', ' + inD.getFullYear();
   $('delete-times').textContent = `${fmtTime.format(inD)} → ${e.clock_out ? fmtTime.format(new Date(e.clock_out)) : 'In progress'}`;
-  $('delete-hours').textContent = `${hoursBetween(e.clock_in, end).toFixed(2)} hrs`;
+  $('delete-hours').textContent = fmtDur(hoursBetween(e.clock_in, end));
   $('delete-warning').hidden = !!e.clock_out;
   const dialog = $('delete-dialog');
   dialog.returnValue = '';
@@ -646,7 +695,7 @@ function readEntryForm() {
 function updateEntryPreview() {
   const r = readEntryForm();
   $('entry-preview').textContent = r
-    ? `${fmtDay.format(r.clockIn)} ${fmtTime.format(r.clockIn)} → ${fmtDay.format(r.clockOut)} ${fmtTime.format(r.clockOut)} · ${hoursBetween(r.clockIn, r.clockOut).toFixed(2)} hrs`
+    ? `${fmtDay.format(r.clockIn)} ${fmtTime.format(r.clockIn)} → ${fmtDay.format(r.clockOut)} ${fmtTime.format(r.clockOut)} · ${fmtDur(hoursBetween(r.clockIn, r.clockOut))}`
     : '';
 }
 
@@ -658,7 +707,6 @@ function openEntryDialog(entry = null) {
   editingEntry = entry;
   const f = $('entry-form');
   f.reset();
-  f.date.max = toDateInput(new Date());
   if (entry) {
     const inD = new Date(entry.clock_in);
     f.date.value = toDateInput(inD);
@@ -741,8 +789,9 @@ function shiftText(d) {
   const out = d.clock_out ? fmtTime.format(new Date(d.clock_out)) : 'in progress';
   const outDay = d.clock_out && new Date(d.clock_out).toDateString() !== inD.toDateString()
     ? ` (${fmtDay.format(new Date(d.clock_out))})` : '';
-  const hrs = d.hours != null ? ` · ${Number(d.hours).toFixed(2)} hrs` : '';
-  return `${fmtDay.format(inD)}, ${inD.getFullYear()} · ${fmtTime.format(inD)} → ${out}${outDay}${hrs}`;
+  const hrs = d.hours != null ? ` · ${fmtDur(d.hours)}` : '';
+  const why = d.reason ? ` · ${reasonLabel(d.reason)}${d.note ? ` ("${d.note}")` : ''}` : '';
+  return `${fmtDay.format(inD)}, ${inD.getFullYear()} · ${fmtTime.format(inD)} → ${out}${outDay}${hrs}${why}`;
 }
 
 function describe(ev) {
@@ -753,7 +802,9 @@ function describe(ev) {
     case 'sign_in_failed': return 'Someone tried to sign in with the wrong password';
     case 'signed_out': return 'Signed out';
     case 'clocked_in': return `Clocked in live at ${fmtTime.format(new Date(d.clock_in))} on ${fmtDay.format(new Date(d.clock_in))}`;
-    case 'clocked_out': return `Clocked out live. Shift: ${shiftText(d)}`;
+    case 'clocked_out':
+      return `Clocked out live${d.reason ? ` for ${reasonLabel(d.reason).toLowerCase()}${d.note ? ` ("${d.note}")` : ''}` : ''}. `
+        + `Shift: ${shiftText({ ...d, reason: null })}`;
     case 'entry_added': return `Logged a past shift by hand: ${shiftText(d)}`;
     case 'entry_edited': {
       const b = d.before || {};
@@ -764,7 +815,7 @@ function describe(ev) {
       return `Deleted a ${d.source ? sourceLabel(d.source) + ' ' : ''}entry: ${shiftText(d)}${d.was_active ? ' (was the current shift)' : ''}`;
     case 'all_data_deleted':
       return `Deleted all time data: ${d.entries} ${d.entries === 1 ? 'entry' : 'entries'}, `
-        + `${Number(d.total_hours).toFixed(2)} hrs (a copy of every deleted entry is kept in the CSV download)`;
+        + fmtDur(d.total_hours);
     case 'name_changed': return d.to ? `Name changed from "${d.from || '(none)'}" to "${d.to}"` : `Name "${d.from}" removed`;
     case 'email_changed': return `Email changed from ${d.from} to ${d.to}`;
     case 'password_changed': return 'Password changed (other devices signed out)';
@@ -774,7 +825,7 @@ function describe(ev) {
       const first = fmtDate.format(new Date(d.from));
       const last = fmtDate.format(new Date(new Date(d.to).getTime() - 1));
       return `Exported PDF for ${d.all ? 'all time' : first === last ? first : `${first} – ${last}`} · `
-        + `${d.entries} ${d.entries === 1 ? 'entry' : 'entries'} · ${Number(d.total_hours).toFixed(2)} hrs`;
+        + `${d.entries} ${d.entries === 1 ? 'entry' : 'entries'} · ${fmtDur(d.total_hours)}`;
     }
     default: return ev.action;
   }

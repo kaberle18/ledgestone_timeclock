@@ -112,26 +112,36 @@ function renderReport(stream, { name, email, from, to, tz, entries, now = new Da
   doc.font('Regular').fontSize(12).fillColor(INK);
   text(rangeLabel, M, y + 4, { width: W * 0.6, ellipsis: true });
   doc.font('Bold').fontSize(18);
-  text(fmtHours(total), M, y, { width: W, align: 'right' });
+  text(fmtHM(total), M, y, { width: W, align: 'right' });
   y += 24;
   doc.font('Regular').fontSize(8.5).fillColor(MUTED);
   text(`${rows.length} ${rows.length === 1 ? 'entry' : 'entries'}`, M, y);
-  text(fmtHM(total), M, y, { width: W, align: 'right' });
+  text(`${fmtHours(total)} hours`, M, y, { width: W, align: 'right' });
   y += 22;
   rule(y, '#cfd3d9');
   y += 22;
 
   // ---- Table ----
   const cols = [
-    { key: 'date', label: 'Date', w: 0.34, align: 'left' },
-    { key: 'in', label: 'Clock in', w: 0.18, align: 'left' },
-    { key: 'out', label: 'Clock out', w: 0.18, align: 'left' },
-    { key: 'hours', label: 'Hours', w: 0.14, align: 'right' },
-    { key: 'cum', label: 'Cumulative', w: 0.16, align: 'right' },
+    { key: 'date', label: 'Date', w: 0.29, align: 'left' },
+    { key: 'in', label: 'Clock in', w: 0.16, align: 'left' },
+    { key: 'out', label: 'Clock out', w: 0.17, align: 'left' },
+    { key: 'hours', label: 'Hours', w: 0.19, align: 'right' },
+    { key: 'cum', label: 'Cumulative', w: 0.19, align: 'right' },
   ];
   let cx = M;
   for (const c of cols) { c.x = cx; c.px = c.w * W; cx += c.px; }
   const cell = (c, str, y0, o = {}) => text(String(str), c.x, y0, { width: c.px, align: c.align, ellipsis: true, ...o });
+  // "8h 30m" with the decimal ("8.50") smaller and lighter after it, right-aligned.
+  const durCell = (c, h, y0, size, color, bold = false) => {
+    const dec = fmtHours(h);
+    doc.font('Regular').fontSize(size * 0.82);
+    const decW = doc.widthOfString(dec);
+    doc.fillColor(MUTED);
+    text(dec, c.x, y0 + size * 0.14, { width: c.px, align: 'right' });
+    doc.font(bold ? 'Bold' : 'Regular').fontSize(size).fillColor(color);
+    text(fmtHM(h), c.x, y0, { width: c.px - decW - 5, align: 'right' });
+  };
 
   for (const c of cols) { label(c.label, c.x, y, { width: c.px, align: c.align }); }
   y += 14;
@@ -167,10 +177,8 @@ function renderReport(stream, { name, email, from, to, tz, entries, now = new Da
     cell(cols[1], f.time.format(inD), y + textOffset);
     if (r.active) doc.fillColor(MUTED);
     cell(cols[2], r.active ? 'In progress' : f.time.format(new Date(r.clock_out)), y + textOffset);
-    doc.fillColor(INK);
-    cell(cols[3], fmtHours(r.hours), y + textOffset);
-    doc.fillColor(MUTED);
-    cell(cols[4], fmtHours(r.cumulative), y + textOffset);
+    durCell(cols[3], r.hours, y + textOffset, fontSize, INK);
+    durCell(cols[4], r.cumulative, y + textOffset, fontSize, MUTED);
     y += rowH;
     rule(y, '#f0f1f3', 0.5);
   }
@@ -186,14 +194,14 @@ function renderReport(stream, { name, email, from, to, tz, entries, now = new Da
     y += 9;
     doc.font('Bold').fontSize(Math.max(fontSize, 9)).fillColor(INK);
     cell(cols[0], 'Total', y);
-    cell(cols[4], fmtHours(total), y);
+    durCell(cols[4], total, y, Math.max(fontSize, 9), INK, true);
   }
 
   // ---- Footer ----
   const generated = new Intl.DateTimeFormat('en-US', { timeZone: tz, dateStyle: 'medium', timeStyle: 'short' }).format(now);
   doc.font('Regular').fontSize(7.5).fillColor('#a3a8b0');
   text(`Generated ${generated}`, M, footerY);
-  text(`Times in ${tz.replace(/_/g, ' ')} · decimal hours`, M, footerY, { width: W, align: 'right' });
+  text(`Times in ${tz.replace(/_/g, ' ')} · hours shown as h/m, then decimal`, M, footerY, { width: W, align: 'right' });
 
   doc.end();
   return { total, count: rows.length };

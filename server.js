@@ -14,6 +14,9 @@ const ACTIONS = [
 ];
 
 const MAX_NAME = 80;
+const OUT_REASONS = ['end_of_day', 'lunch', 'break', 'other'];
+const MAX_NOTE = 200;
+const REASON_LABELS = { end_of_day: 'End of day', lunch: 'Lunch', break: 'Break', other: 'Other' };
 // Profile photos are resized in the browser to a small JPEG and stored inline.
 const MAX_AVATAR_CHARS = 400_000;
 const AVATAR_RE = /^data:image\/(jpeg|png|webp);base64,[A-Za-z0-9+/]+=*$/;
@@ -108,7 +111,7 @@ function createApp(providedDb) {
         'UPDATE users SET password_hash = $1, token_version = token_version + 1 WHERE id = $2 RETURNING token_version',
         [hash, id]),
       allEntries: (userId) => x.query(
-        'SELECT id, clock_in, clock_out, source FROM entries WHERE user_id = $1 ORDER BY clock_in', [userId]),
+        'SELECT id, clock_in, clock_out, source, out_reason, out_note FROM entries WHERE user_id = $1 ORDER BY clock_in', [userId]),
       deleteAllEntries: (userId) => x.query('DELETE FROM entries WHERE user_id = $1', [userId]),
       deleteUser: (userId) => x.query('DELETE FROM users WHERE id = $1', [userId]),
       deleteActivity: (userId) => x.query('DELETE FROM activity WHERE user_id = $1', [userId]),
@@ -119,8 +122,9 @@ function createApp(providedDb) {
         'SELECT * FROM entries WHERE user_id = $1 AND clock_out IS NULL ORDER BY clock_in DESC LIMIT 1', [userId]),
       clockIn: (userId) => one(
         'INSERT INTO entries (user_id, clock_in) VALUES ($1, $2) RETURNING *', [userId, new Date().toISOString()]),
-      clockOut: (id) => one(
-        'UPDATE entries SET clock_out = $1 WHERE id = $2 RETURNING *', [new Date().toISOString(), id]),
+      clockOut: (id, reason, note) => one(
+        'UPDATE entries SET clock_out = $1, out_reason = $2, out_note = $3 WHERE id = $4 RETURNING *',
+        [new Date().toISOString(), reason, note, id]),
       insertEntry: (userId, clockIn, clockOut) => one(
         "INSERT INTO entries (user_id, clock_in, clock_out, source) VALUES ($1, $2, $3, 'manual') RETURNING *",
         [userId, clockIn, clockOut]),
@@ -137,7 +141,7 @@ function createApp(providedDb) {
         "UPDATE entries SET clock_in = $1, clock_out = $2, source = 'manual' WHERE id = $3 RETURNING *",
         [clockIn, clockOut, id]),
       range: (userId, from, to) => x.query(
-        `SELECT id, clock_in, clock_out, source FROM entries
+        `SELECT id, clock_in, clock_out, source, out_reason, out_note FROM entries
          WHERE user_id = $1 AND clock_in >= $2 AND clock_in < $3
          ORDER BY clock_in ASC`, [userId, from, to]),
       // Append-only paper trail. There is intentionally no update/delete for it.
@@ -163,6 +167,8 @@ function createApp(providedDb) {
     clock_in: e.clock_in,
     clock_out: e.clock_out,
     hours: e.clock_out ? hours(e.clock_in, e.clock_out) : null,
+    ...(e.out_reason ? { reason: e.out_reason } : {}),
+    ...(e.out_note ? { note: e.out_note } : {}),
   });
 
   // What the browser gets to see about the signed-in user.
@@ -380,10 +386,14 @@ function createApp(providedDb) {
   });
 
   app.post('/api/clock-out', auth, async (req, res) => {
+    // Why the shift is ending (asked by the app when you press Clock Out).
+    const reason = req.body?.reason == null ? null : String(req.body.reason);
+    if (reason !== null && !OUT_REASONS.includes(reason)) return res.status(400).json({ error: 'Unknown clock-out reason' });
+    const note = String(req.body?.note || '').trim().slice(0, MAX_NOTE) || null;
     const active = await q.active(req.user.id);
     if (!active) return res.status(409).json({ error: 'You are not clocked in' });
     const entry = await inTx(async (t) => {
-      const e = await t.clockOut(active.id);
+      const e = await t.clockOut(active.id, reason, note);
       await t.log(req, req.user.id, 'clocked_out', { entryId: e.id, details: entryDetails(e) });
       return e;
     });
@@ -403,7 +413,6 @@ function createApp(providedDb) {
     const clockOut = new Date(body?.clock_out);
     if (isNaN(clockIn) || isNaN(clockOut)) return { error: 'Clock in and clock out times are required' };
     if (clockOut <= clockIn) return { error: 'Clock out must be after clock in' };
-    if (clockOut > new Date()) return { error: 'Manual entries must be in the past' };
     return { from: clockIn.toISOString(), to: clockOut.toISOString() };
   }
 
@@ -514,11 +523,12 @@ function createApp(providedDb) {
       const str = v == null ? '' : String(v);
       return /[",\n]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
     };
-    const lines = [['Event #', 'Time (UTC)', `Time (${tz})`, 'Action', 'Entry #', 'Entry Type', 'Clock In (UTC)', 'Clock Out (UTC)', 'Hours', 'Details', 'IP', 'Device']];
+    const lines = [['Event #', 'Time (UTC)', `Time (${tz})`, 'Action', 'Entry #', 'Entry Type', 'Clock In (UTC)', 'Clock Out (UTC)', 'Hours', 'Clock-out Reason', 'Details', 'IP', 'Device']];
     const typeLabel = { clock: 'Live clock', manual: 'Manual' };
     for (const e of rows) {
-      const { source, clock_in, clock_out, hours: h, ...rest } = e.details;
-      lines.push([e.id, e.at, local.format(new Date(e.at)), e.action, e.entry_id, typeLabel[source] || '', clock_in, clock_out, h,
+      const { source, clock_in, clock_out, hours: h, reason, note, ...rest } = e.details;
+      const why = reason ? REASON_LABELS[reason] + (note ? `: ${note}` : '') : '';
+      lines.push([e.id, e.at, local.format(new Date(e.at)), e.action, e.entry_id, typeLabel[source] || '', clock_in, clock_out, h, why,
         Object.keys(rest).length ? JSON.stringify(rest) : '', e.ip, e.user_agent]);
     }
     res.setHeader('Content-Type', 'text/csv; charset=utf-8');
